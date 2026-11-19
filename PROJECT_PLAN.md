@@ -341,6 +341,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** `MassTransitIntegrationEventPublisher` قرارداد `IIntegrationEventPublisher` را با استفاده از `IPublishEndpoint` پیاده‌سازی می‌کند و پیام را با Runtime Type واقعی آن Publish می‌کند. Application همچنان هیچ Referenceای به MassTransit ندارد. فعال‌سازی Bus Outbox همراه با RabbitMQ Transport در مرحله ۴.۲ انجام می‌شود.
 - **دلیل:** اگر Event با نوع Compile-time برابر `IIntegrationEvent` منتشر شود، قرارداد عمومی Interface می‌تواند به‌جای Event مشخص استفاده شود. ارسال Runtime Type تضمین می‌کند `ActivityCreatedEvent` قرارداد واقعی پیام باقی بماند. جداکردن Adapter از تنظیم Transport نیز حجم این مرحله را محدود نگه می‌دارد.
 
+### D-037 — پیاده‌سازی ActivityRepository
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `ActivityRepository` برای خواندن Activity بر اساس `(TenantId, RequestKey)` از `AsNoTracking` و `SingleOrDefaultAsync` استفاده می‌کند. افزودن Activity فقط آن را به Change Tracker همان `CrmDbContext` اضافه می‌کند و Repository مستقیماً `SaveChangesAsync` اجرا نمی‌کند.
+- **دلیل:** Query بدون Tracking به Handler اجازه می‌دهد بعد از شکست Unique Index، رکورد برنده‌ی Commit‌شده را از دیتابیس بخواند و Entity بازنده‌ی موجود در Change Tracker نتیجه را آلوده نکند. `SingleOrDefaultAsync` نیز نقض احتمالی تضمین یکتایی را پنهان نمی‌کند. Commit باید در `IUnitOfWork` باقی بماند تا Activity، Contact و Outbox اتمیک باشند.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -445,15 +451,23 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۲.۳.۱ — Adapter انتشار Event
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - پیاده‌سازی `IIntegrationEventPublisher` به‌عنوان Adapter روی `IPublishEndpoint`.
 - ثبت Adapter در DI.
 - فعال‌سازی Bus Outbox و اتصال RabbitMQ در مرحله ۴.۲ تکمیل می‌شود؛ تا آن مرحله `IPublishEndpoint` هنوز در Container ثبت نشده است.
 
-#### مرحله ۲.۴ — Repositoryهای Activity و Contact
+#### مرحله ۲.۴.۱ — ActivityRepository
+
+- **وضعیت:** آماده‌بازبینی
+- پیاده‌سازی Query بر اساس Tenant و Request Key با `AsNoTracking`.
+- پیاده‌سازی Add بدون Commit و ثبت Repository در DI.
+- تست واقعی Query پس از ایجاد Migration و SQL Server Testcontainer اضافه می‌شود.
+
+#### مرحله ۲.۴.۲ — ContactRepository
 
 - **وضعیت:** شروع‌نشده
-- پیاده‌سازی Repositoryها و تست Integration پایه.
+- پیاده‌سازی پیدا کردن Contact و جلو بردن Monotonic مقدار `LastActivityAt`.
+- ثبت Repository در DI؛ تست رفتار Relational در مرحله SQL Server انجام می‌شود.
 
 #### مرحله ۲.۵ — UnitOfWork و مرز تراکنش
 
@@ -661,5 +675,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۳ شامل مدل و نگاشت ماندگار Outbox و وضعیت‌های انتشار، Retry و Lease پیاده‌سازی شد؛ تصمیم D-034 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | تصمیم Outbox اختصاصی بازنگری شد؛ مدل دستی با Entityهای استاندارد MassTransit جایگزین و مراحل Polling، Lease و Publisher Confirm دستی حذف شدند؛ تصمیم D-035 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۳.۱ شامل Adapter قرارداد انتشار Application روی `IPublishEndpoint` با حفظ Runtime Type پیام پیاده‌سازی شد؛ تصمیم D-036 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۴.۱ شامل پیاده‌سازی و ثبت `ActivityRepository` با Query بدون Tracking و Add بدون Commit انجام شد؛ تصمیم D-037 ثبت شد. |
 
 </div>
