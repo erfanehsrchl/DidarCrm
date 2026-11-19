@@ -1,0 +1,6 @@
+@DidarCrm.Api_HostAddress = http://localhost:5269
+
+GET {{DidarCrm.Api_HostAddress}}/
+Accept: application/json
+
+###
