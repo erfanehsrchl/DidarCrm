@@ -37,5 +37,14 @@ public sealed class CrmDbContextModelTests
         Assert.NotNull(contact.FindProperty("Id"));
         Assert.NotNull(contact.FindProperty("TenantId"));
         Assert.NotNull(contact.FindProperty("LastActivityAt"));
+
+        var tableNames = dbContext.Model
+            .GetEntityTypes()
+            .Select(entity => entity.GetTableName())
+            .ToHashSet();
+
+        Assert.Contains("InboxState", tableNames);
+        Assert.Contains("OutboxMessage", tableNames);
+        Assert.Contains("OutboxState", tableNames);
     }
 }

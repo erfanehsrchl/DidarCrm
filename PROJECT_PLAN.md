@@ -170,8 +170,8 @@ DidarCrm.Infrastructure/Persistence/Migrations
 ### D-008 — قرارداد API ثبت Activity
 
 - **وضعیت:** پذیرفته‌شده
-- **تصمیم:** Endpoint برابر `POST /api/v1/activities` است. Tenant از `X-Tenant-Id`، کلید درخواست از `Idempotency-Key` و `contactId` و `title` از JSON Body خوانده می‌شوند. مقدار `CreatedAt` در سرور و به‌صورت UTC تولید می‌شود. درخواست جدید `201 Created` و درخواست تکراری `200 OK` همراه با `Idempotent-Replay: true` دریافت می‌کند.
-- **دلیل:** Headerها اطلاعات Tenant و Idempotency را از Payload تجاری جدا و رفتار Replay را شفاف می‌کنند. Authentication خارج از محدوده است.
+- **تصمیم:** Endpoint برابر `POST /api/v1/activities` است. Tenant از `X-Tenant-Id`، کلید درخواست از `Idempotency-Key` و `contactId` و `title` از JSON Body خوانده می‌شوند. مقدار `CreatedAt` در سرور و به‌صورت UTC تولید می‌شود. تصمیم دقیق Status Code و Header پاسخ به مرحله API موکول می‌شود.
+- **دلیل:** Headerها اطلاعات Tenant و Idempotency را از Payload تجاری جدا می‌کنند. قرارداد Application نباید جزئیات پاسخ HTTP را در خود نگه دارد. Authentication خارج از محدوده است.
 
 ### D-009 — Concurrency مقدار LastActivityAt
 
@@ -182,25 +182,25 @@ DidarCrm.Infrastructure/Persistence/Migrations
 ### D-010 — پیام‌رسانی Async
 
 - **وضعیت:** پذیرفته‌شده
-- **تصمیم:** استفاده از RabbitMQ با Queueهای Durable، پیام‌های Persistent، Publisher Confirm و Manual Acknowledgement. انتشار فقط از طریق Transactional Outbox انجام می‌شود.
-- **دلیل:** نوشتن مستقیم در دیتابیس و Broker یک Failure Gap ایجاد می‌کند. Outbox اجازه می‌دهد هنگام قطع RabbitMQ، API موفق بماند و پیام پس از بازیابی Broker منتشر شود.
+- **تصمیم:** استفاده از RabbitMQ از طریق MassTransit 8 و Transactional Bus Outbox مبتنی بر EF Core. تنظیمات Queueهای Durable، Retry، Acknowledgement و تحویل Outbox از طریق قابلیت‌های MassTransit انجام می‌شوند.
+- **دلیل:** نوشتن مستقیم در دیتابیس و Broker یک Failure Gap ایجاد می‌کند. Bus Outbox پیام را در تراکنش DbContext ذخیره و Delivery Service آن را پس از Commit به RabbitMQ تحویل می‌دهد؛ استفاده از پیاده‌سازی آزموده‌شده‌ی MassTransit ریسک ساخت دستی Polling، Lease و Publisher Confirm را حذف می‌کند.
 
 ### D-011 — توپولوژی اجرا
 
 - **وضعیت:** پذیرفته‌شده
-- **تصمیم:** HTTP API، Outbox Publisher، Notification Consumer و Webhook Consumer در یک ASP.NET Core Host و به‌صورت Hosted Background Service اجرا می‌شوند.
+- **تصمیم:** HTTP API، MassTransit Outbox Delivery Service، Notification Consumer و Webhook Consumer در یک ASP.NET Core Host اجرا می‌شوند.
 - **دلیل:** برنامه یک Monolith با یک واحد استقرار باقی می‌ماند. SQL Server و RabbitMQ سرویس‌های زیرساختی مستقل هستند.
 
 ### D-012 — Eventها و Consumerها
 
 - **وضعیت:** پذیرفته‌شده
-- **تصمیم:** Event نسخه‌دار `ActivityCreatedV1` روی یک Topic Exchange منتشر می‌شود و Notification و Webhook هرکدام Queue مستقل و Durable دارند.
+- **تصمیم:** `ActivityCreatedEvent` روی یک Topic Exchange منتشر می‌شود و Notification و Webhook هرکدام Queue مستقل و Durable دارند. Versioning قرارداد تا زمانی که نیاز واقعی به تغییر Breaking ایجاد نشده، اضافه نمی‌شود.
 - **دلیل:** هر Consumer باید Event را مستقل دریافت کند. Queueهای جدا Retry و Failure Handling آن‌ها را نیز از هم ایزوله می‌کنند.
 
 ### D-013 — Idempotency در Consumer
 
 - **وضعیت:** پذیرفته‌شده
-- **تصمیم:** طراحی بر اساس At-least-once Delivery است. ثبت Inbox و ایجاد Notification به‌صورت اتمیک Commit و با Unique Constraint محافظت می‌شوند. Webhook Delivery یک شناسه ثابت، وضعیت ماندگار و Idempotency Header ارسالی به مقصد دارد.
+- **تصمیم:** طراحی بر اساس At-least-once Delivery است. Consumer Outbox و `InboxState` استاندارد MassTransit برای Duplicate Detection و Commit اتمیک خروجی Consumer استفاده می‌شوند. ایجاد Notification همچنان با Unique Constraint محافظت می‌شود. Webhook Delivery یک شناسه ثابت، وضعیت ماندگار و Idempotency Header ارسالی به مقصد دارد.
 - **دلیل:** RabbitMQ ممکن است یک پیام را دوباره تحویل دهد. تضمین Exactly-once برای اثر جانبی HTTP بدون همکاری سرویس مقصد ممکن نیست.
 
 ### D-014 — راهبرد Migration
@@ -223,9 +223,9 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 ### D-017 — پرهیز از Frameworkهای غیرضروری
 
-- **وضعیت:** پذیرفته‌شده
+- **وضعیت:** اصلاح‌شده توسط D-035
 - **تصمیم:** MediatR، Generic Repository، CQRS Framework، AutoMapper یا Service Bus Abstraction اضافه نمی‌شوند، مگر اینکه در ادامه یک نیاز واقعی و قابل دفاع ایجاد شود.
-- **دلیل:** کد صریح برای این تسک ساده‌تر بازبینی و دفاع می‌شود.
+- **دلیل:** کد صریح برای این تسک ساده‌تر بازبینی و دفاع می‌شود. MassTransit مطابق D-035 یک استثنای آگاهانه برای Messaging، Outbox و Inbox است.
 
 ### D-018 — نام Repository و Solution
 
@@ -250,6 +250,90 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **وضعیت:** پذیرفته‌شده
 - **تصمیم:** `RequestKey` اجباری، حداکثر ۱۰۰ کاراکتر و یک مقدار Opaque است؛ Domain مقدار معتبر آن را تغییر نمی‌دهد. `ActivityTitle` اجباری، Trimشده و حداکثر ۵۰۰ کاراکتر است.
 - **دلیل:** کلید Idempotency باید هویت دقیق درخواست را حفظ کند، درحالی‌که حذف فاصله‌های ابتدا و انتهای عنوان یک نرمال‌سازی نمایشی و قابل‌پیش‌بینی است.
+
+### D-022 — ساخت CustomerActivity و زمان ایجاد
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `CustomerActivity` از طریق Factory ساخته می‌شود و شناسه Activity را هنگام ساخت تولید می‌کند. Application زمان UTC را از `IClock` اختصاصی می‌گیرد و Domain همان مقدار را بدون تبدیل یا Validation تکراری ذخیره می‌کند. Entity پس از ساخت فقط Getter دارد.
+- **دلیل:** `IClock.UtcNow` منبع واحد زمان و مسئول تضمین UTC بودن آن است؛ Domain نباید همان قرارداد را دوباره بررسی یا زمان را به‌شکل پنهان تبدیل کند.
+
+### D-023 — قرارداد CreateActivity در مرز Application
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `CreateActivityCommand` ورودی‌ها را با نوع‌های ساده `Guid` و `string` دریافت می‌کند و تبدیل آن‌ها به Value Object داخل Use Case انجام خواهد شد. `CreateActivityResponse` فقط شامل شناسه Activity و زمان ایجاد UTC است.
+- **دلیل:** قرارداد Application نباید مدل HTTP باشد، مصرف‌کننده را مجبور به ساخت Value Objectهای Domain کند یا جزئیات Replay و Status Code مربوط به لایه API را در خروجی تجاری قرار دهد.
+
+### D-024 — Portهای Persistence و مرز تراکنش
+
+- **وضعیت:** منسوخ‌شده توسط D-028
+- **تصمیم:** به‌جای Generic Repository از `IActivityRepository` و `IContactRepository` هدفمند استفاده می‌شود. مرز تراکنش با `ITransactionRunner.ExecuteAsync` بیان می‌شود و Implementation آن در Infrastructure مسئول Begin، Commit و Rollback خواهد بود.
+- **دلیل:** Repositoryهای هدفمند زبان Use Case را بیان می‌کنند و `ITransactionRunner` بدون نشت API تراکنش EF Core، اتمیک بودن چند عملیات را در Application قابل مشاهده و تست می‌کند.
+
+### D-025 — Result Pattern در مرز Use Case
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** Use Caseها برای خطاهای قابل‌انتظار `Validation`، `NotFound` و `Conflict` از `Result<TValue>` استفاده می‌کنند. خطاهای غیرمنتظره Infrastructure، خطاهای برنامه‌نویسی و Cancellation همچنان Exception هستند.
+- **دلیل:** خطاهای تجاری بخشی از قرارداد صریح Application می‌شوند و API می‌تواند بدون استفاده از Exception برای Control Flow آن‌ها را به پاسخ مناسب نگاشت کند.
+
+### D-026 — قرارداد انتشار Integration Event
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `ActivityCreatedEvent` قرارداد مشترک `IIntegrationEvent` را پیاده‌سازی می‌کند و Application آن را از طریق `IIntegrationEventPublisher` منتشر می‌کند. نام Outbox یا RabbitMQ در Port لایه Application استفاده نمی‌شود و فعلاً قرارداد پیام Versioning ندارد.
+- **دلیل:** Application قصد انتشار Event را بیان می‌کند، اما از مکانیزم Outbox و RabbitMQ آگاه نیست. Versioning قبل از وجود یک تغییر Breaking پیچیدگی غیرضروری ایجاد می‌کند.
+
+### D-027 — جریان پایه CreateActivity
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `CreateActivityHandler` ورودی خام Command را به Value Object تبدیل می‌کند و خطاهای Validation و نبودن Contact را با `Result` برمی‌گرداند. جلو بردن `LastActivityAt`، درج Activity و انتشار Event پیش از یک فراخوانی `IUnitOfWork.SaveChangesAsync` انجام می‌شوند. رفتار Replay، Payload Conflict و Race درخواست‌های همزمان به مراحل بعد موکول شده‌اند.
+- **دلیل:** مرز تراکنش باید کل تغییرات همگام و ثبت Event را پوشش دهد؛ در عین حال جدا نگه‌داشتن رفتارهای Idempotency، حجم هر مرحله را برای بازبینی محدود می‌کند.
+
+### D-028 — DbContext به‌عنوان Unit of Work
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** Application فقط به قرارداد کوچک `IUnitOfWork.SaveChangesAsync` وابسته است. `CrmDbContext` در Infrastructure باقی می‌ماند، این قرارداد را پیاده‌سازی می‌کند و تمام تغییرات Trackشده شامل Contact، Activity و Outbox را با یک `SaveChangesAsync` اتمیک ذخیره خواهد کرد. `ITransactionRunner` حذف می‌شود.
+- **دلیل:** خود EF Core DbContext پیاده‌سازی طبیعی Unit of Work است. این طراحی Handler را از Lambda تراکنشی ساده‌تر می‌کند و در عین حال وابستگی Application به EF Core را به وجود نمی‌آورد.
+
+### D-029 — رفتار Idempotent Replay و Payload Conflict
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** اگر برای ترکیب `(TenantId, RequestKey)` یک Activity موجود باشد، `ContactId` و `Title` نرمال‌شده با درخواست مقایسه می‌شوند. Payload یکسان پاسخ همان Activity را بدون هیچ Write یا Event جدید برمی‌گرداند؛ Payload متفاوت خطای `Activity.IdempotencyConflict` از نوع `Conflict` ایجاد می‌کند.
+- **دلیل:** تکرار یک درخواست موفق نباید اثر جانبی تازه ایجاد کند و استفاده مجدد از همان کلید برای یک عملیات متفاوت نیز نباید به‌اشتباه موفق تلقی شود. کنترل Race میان دو Insert هم‌زمان همچنان بر عهده Unique Index و مرحله ۱.۱۰ است.
+
+### D-030 — مدیریت Race مربوط به Idempotency Key
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** Infrastructure برخورد با Unique Index مربوط به `(TenantId, RequestKey)` را به `DuplicateRequestKeyException` تبدیل می‌کند. Handler این Exception را فقط اطراف `SaveChangesAsync` دریافت می‌کند، Activity برنده را مجدداً می‌خواند و با همان قواعد مرحله ۱.۹ آن را به Replay یا Payload Conflict تبدیل می‌کند. اگر رکورد برنده پیدا نشود، Exception دوباره پرتاب می‌شود.
+- **دلیل:** بررسی پیش از Insert به‌تنهایی در برابر درخواست‌های هم‌زمان امن نیست. Unique Index داور نهایی است و تبدیل خطای فنی آن در مرز Persistence مانع وابستگی Application به EF Core یا SQL Server می‌شود.
+
+### D-031 — پایه EF Core و مالکیت DbContext
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `CrmDbContext` در Infrastructure قرار دارد، با EF Core 8 و Provider مربوط به SQL Server از طریق DI ثبت می‌شود و پیاده‌سازی Scoped قرارداد `IUnitOfWork` است. API فقط Connection String با نام `Database` را به Infrastructure تحویل می‌دهد. Connection String فعلی برای LocalDB محیط توسعه است و در مرحله Docker Compose با Configuration محیطی جایگزین می‌شود.
+- **دلیل:** Application به EF Core وابسته نمی‌شود و Repositoryها و Unit of Work آینده در هر Request همان Instance از DbContext را به اشتراک خواهند گذاشت. این مرحله فقط زیرساخت اتصال را آماده می‌کند و هنوز هیچ Entity Mapping یا Migration ایجاد نمی‌کند.
+
+### D-032 — نگاشت جدول‌های قدیمی
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `CustomerActivity` مستقیماً به جدول `crmActivity` و Entity دامنه `Contact` به جدول `cntContact` نگاشت می‌شوند و Value Objectهای آن‌ها با Value Converter ذخیره می‌شوند. ستون Domain با نام `CreatedAtUtc` به ستون قدیمی `CreatedAt` متصل است و Flagهای قدیمی `WebhookSent` و `NotificationCreated` به‌صورت Shadow Property حفظ می‌شوند. `RequestKey` برای سازگاری با رکوردهای قدیمی در Schema nullable باقی می‌ماند، هرچند ایجاد Activity جدید بدون آن در Domain ممکن نیست.
+- **دلیل:** Activity و Contact در سیستم واقعی Domain Entity هستند؛ در این بازسازی فقط بخش موردنیاز Contact شامل شناسه، Tenant و `LastActivityAt` مدل می‌شود. نگه‌داشتن ستون‌های قدیمی در EF Model نیز از نادیده‌گرفتن ناخواسته آن‌ها در طراحی Migration جلوگیری می‌کند.
+
+### D-033 — مدل محدود Contact در Domain
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `ContactRecord` از Infrastructure حذف و با Entity دامنه `Contact` جایگزین می‌شود. این Entity فقط `ContactId`، `TenantId` و `LastActivityAt` را دارد و کامل‌کردن سایر اطلاعات Contact خارج از محدوده‌ی این بازسازی است.
+- **دلیل:** پروژه بخشی از یک CRM بزرگ‌تر را بازسازی می‌کند و Contact در سیستم واقعی یک Domain Entity است؛ ناقص‌بودن آگاهانه‌ی مدل در محدوده‌ی فعلی دلیل مناسبی برای تبدیل آن به مدل صرفاً Persistence نیست.
+
+### D-034 — مدل ماندگار Outbox
+
+- **وضعیت:** منسوخ‌شده توسط D-035
+- **تصمیم:** پیام‌های آماده‌ی انتشار در جدول `outboxMessage` با شناسه Event، نوع، Payload سریال‌شده و زمان وقوع ذخیره می‌شوند. `PublishedAtUtc` وضعیت تکمیل، `AttemptCount` و `NextAttemptAtUtc` وضعیت Retry، `LockedUntilUtc` وضعیت Lease و `LastError` آخرین خطای انتشار را نگه می‌دارند. این مدل داخلی Infrastructure است و Domain Entity محسوب نمی‌شود.
+- **دلیل:** Outbox یک مفهوم فنی برای حذف Failure Gap میان SQL و RabbitMQ است. نگهداری وضعیت Retry و Lease در همان رکورد، انتشار چند Instance را در مرحله Publisher قابل‌کنترل می‌کند، بدون آنکه جزئیات پیام‌رسانی وارد Domain شوند.
+
+### D-035 — استفاده از MassTransit برای Messaging و Outbox
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** به‌جای Outbox، Polling، Lease و Publisher اختصاصی از MassTransit 8.4.0 استفاده می‌شود. Transactional Bus Outbox برای انتشار از API و Consumer Outbox برای Inbox و خروجی Consumerها به کار می‌روند. جداول استاندارد `InboxState`، `OutboxMessage` و `OutboxState` به `CrmDbContext` افزوده می‌شوند. `IIntegrationEventPublisher` در Application باقی می‌ماند و Infrastructure آن را با Adapter روی `IPublishEndpoint` پیاده‌سازی می‌کند.
+- **دلیل:** پیاده‌سازی دستی Outbox شامل Serialization، Locking، Retry، Publisher Confirm، Cleanup و هماهنگی چند Instance است. MassTransit این رفتارها را یکپارچه و آزموده‌شده فراهم می‌کند و Adapter اجازه می‌دهد Application همچنان از Framework پیام‌رسانی مستقل بماند. نسخه ۸ برای سازگاری با .NET 8 و مجوز Apache-2.0 انتخاب شده است.
 
 ## ۶. مراحل پیاده‌سازی
 
@@ -278,62 +362,86 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۱.۲ — RequestKey و ActivityTitle
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - افزودن دو Value Object و محدودیت طول/مقدار.
 - افزودن تست Invariantهای همین دو نوع.
 
-#### مرحله ۱.۳ — Entity مربوط به CustomerActivity
+#### مرحله ۱.۳ — CustomerActivity و قرارداد زمان
 
-- **وضعیت:** شروع‌نشده
-- افزودن Entity و Factory ساخت آن.
-- افزودن تست ساخت و نرمال‌سازی زمان UTC.
+- **وضعیت:** پذیرفته‌شده
+- افزودن Entity، Factory و قرارداد `IClock`.
+- افزودن تست ساخت و ذخیره بدون تغییر زمان UTC.
 
 #### مرحله ۱.۴ — قرارداد ورودی و خروجی Use Case
 
-- **وضعیت:** شروع‌نشده
-- افزودن `CreateActivityCommand` و `CreateActivityResult` بدون Handler.
+- **وضعیت:** پذیرفته‌شده
+- افزودن `CreateActivityCommand` و `CreateActivityResponse` بدون Handler.
 
-#### مرحله ۱.۵ — Portهای Persistence و Time
+#### مرحله ۱.۵ — Portهای Persistence و Transaction
 
-- **وضعیت:** شروع‌نشده
-- افزودن قراردادهای Repository، Clock و Transaction؛ بدون Implementation.
+- **وضعیت:** پذیرفته‌شده
+- افزودن قراردادهای Repository و `IUnitOfWork`؛ بدون Implementation.
 
-#### مرحله ۱.۶ — قرارداد Integration Event
+#### مرحله ۱.۶ — Result Pattern پایه
 
-- **وضعیت:** شروع‌نشده
+- **وضعیت:** پذیرفته‌شده
+- افزودن `Error`، `ErrorType` و `Result<TValue>` همراه Unit Test.
+
+#### مرحله ۱.۷ — قرارداد Integration Event
+
+- **وضعیت:** پذیرفته‌شده
 - تصمیم‌گیری و افزودن قرارداد Event و Port انتشار؛ بدون RabbitMQ یا Outbox Implementation.
 
-#### مرحله ۱.۷ — Happy Path مربوط به CreateActivityHandler
+#### مرحله ۱.۸ — جریان پایه CreateActivityHandler
 
-- **وضعیت:** شروع‌نشده
-- پیاده‌سازی فقط مسیر موفق ثبت Activity و تست آن.
+- **وضعیت:** پذیرفته‌شده
+- پیاده‌سازی مسیر موفق ثبت Activity.
+- نگاشت Validation و نبودن Contact به `Result`.
+- افزودن Unit Test برای همین سه مسیر؛ بدون منطق Replay یا Race.
 
-#### مرحله ۱.۸ — Replay و Payload Conflict
+#### مرحله ۱.۹ — Replay و Payload Conflict
 
-- **وضعیت:** شروع‌نشده
+- **وضعیت:** پذیرفته‌شده
 - افزودن رفتار Idempotent Replay و خطای استفاده متفاوت از Key همراه تست.
 
-#### مرحله ۱.۹ — Race مربوط به درخواست همزمان
+#### مرحله ۱.۱۰ — Race مربوط به درخواست همزمان
 
-- **وضعیت:** شروع‌نشده
-- مدیریت Conflict دیتابیس در سطح Application Contract و تست مسیر Race.
+- **وضعیت:** پذیرفته‌شده
+- افزودن قرارداد خطای Duplicate Request Key در مرز Persistence.
+- تبدیل بازنده Race به Replay یا Payload Conflict همراه Unit Test.
+- تشخیص خطای SQL Server و تست Concurrency واقعی در مرحله Persistence انجام می‌شود.
 
 ### مرحله ۲ — SQL Persistence
 
 #### مرحله ۲.۱ — EF Core و CrmDbContext
 
-- **وضعیت:** شروع‌نشده
-- افزودن Packageها، DbContext خالی و ثبت Dependency Injection.
+- **وضعیت:** پذیرفته‌شده
+- افزودن Packageهای EF Core 8 و SQL Server.
+- افزودن `CrmDbContext` خالی و اتصال آن به `IUnitOfWork`.
+- ثبت DbContext در DI و خواندن Connection String از API.
+- در این مرحله هنوز Entity Configuration، Repository و Migration وجود ندارد؛ این DbContext در مرحله ۲.۲ با نگاشت جدول‌های قدیمی تکمیل می‌شود.
 
 #### مرحله ۲.۲ — نگاشت جدول‌های قدیمی
 
-- **وضعیت:** شروع‌نشده
-- نگاشت `crmActivity` و `cntContact` بدون Repository.
+- **وضعیت:** پذیرفته‌شده
+- نگاشت `CustomerActivity` و Value Objectهای آن به `crmActivity`.
+- نگاشت Entity دامنه `Contact` به `cntContact`.
+- حفظ Flagهای قدیمی به‌صورت Shadow Property.
+- افزودن تست EF Model؛ بدون Repository، Migration یا اتصال واقعی به SQL Server.
 
 #### مرحله ۲.۳ — نگاشت Outbox
 
+- **وضعیت:** آماده‌بازبینی
+- افزودن Package مربوط به MassTransit EF Core.
+- افزودن Entityهای استاندارد `InboxState`، `OutboxMessage` و `OutboxState` به `CrmDbContext`.
+- حذف مدل و Configuration اختصاصی Outbox.
+- تکمیل تست EF Model؛ بدون اتصال RabbitMQ یا اجرای Delivery Service.
+
+#### مرحله ۲.۳.۱ — Adapter انتشار Event
+
 - **وضعیت:** شروع‌نشده
-- افزودن مدل Persistence و Mapping جدول Outbox.
+- پیاده‌سازی `IIntegrationEventPublisher` به‌عنوان Adapter روی `IPublishEndpoint`.
+- ثبت MassTransit Bus Outbox روی `CrmDbContext`؛ Commit همراه Activity و Contact توسط `IUnitOfWork` انجام می‌شود.
 
 #### مرحله ۲.۴ — Repositoryهای Activity و Contact
 
@@ -372,7 +480,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **وضعیت:** شروع‌نشده
 - افزودن `201`/`200` و Integration Testهای HTTP.
 
-### مرحله ۴ — RabbitMQ و Outbox Publisher
+### مرحله ۴ — RabbitMQ و MassTransit
 
 #### مرحله ۴.۱ — Docker Compose زیرساخت محلی
 
@@ -382,17 +490,17 @@ DidarCrm.Infrastructure/Persistence/Migrations
 #### مرحله ۴.۲ — اتصال و توپولوژی RabbitMQ
 
 - **وضعیت:** شروع‌نشده
-- افزودن Connection، Exchange و Queue declaration بدون Publisher Loop.
+- افزودن Transport مربوط به MassTransit RabbitMQ و تنظیم Exchange و Queueها.
 
-#### مرحله ۴.۳ — Polling و Lease مربوط به Outbox
-
-- **وضعیت:** شروع‌نشده
-- خواندن امن Batch پیام‌ها و مدیریت Lease.
-
-#### مرحله ۴.۴ — Publish Confirm و Retry
+#### مرحله ۴.۳ — تنظیم Outbox Delivery
 
 - **وضعیت:** شروع‌نشده
-- انتشار پیام، Confirm و Backoff.
+- تنظیم Batch Size، Delivery Timeout، Retry و Concurrency مربوط به Bus Outbox.
+
+#### مرحله ۴.۴ — Consumer Outbox و Retry
+
+- **وضعیت:** شروع‌نشده
+- تنظیم Consumer Outbox، Duplicate Detection Window و سیاست Retry/Redelivery.
 
 #### مرحله ۴.۵ — تست قطع Broker
 
@@ -414,7 +522,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 #### مرحله ۵.۳ — Inbox و Deduplication
 
 - **وضعیت:** شروع‌نشده
-- افزودن Inbox و Commit اتمیک.
+- اتصال Consumer به Consumer Outbox و `InboxState` استاندارد MassTransit.
 
 #### مرحله ۵.۴ — تست Redelivery
 
@@ -530,5 +638,19 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۸ | مراحل پیاده‌سازی به زیرمرحله‌های کوچک و دارای Commit و Review Gate مستقل تقسیم شدند. |
 | ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۱.۱ شامل شناسه‌های Domain و تست‌های همان شناسه‌ها پیاده‌سازی شد؛ تصمیم D-020 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۱.۲ شامل `RequestKey`، `ActivityTitle` و تست Invariantهای آن‌ها پیاده‌سازی شد؛ تصمیم D-021 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۱.۳ شامل `CustomerActivity`، قرارداد اختصاصی `IClock` و تست ذخیره زمان UTC پیاده‌سازی شد؛ تصمیم D-022 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۱.۴ شامل قراردادهای `CreateActivityCommand` و `CreateActivityResult` پیاده‌سازی شد؛ تصمیم D-023 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۱.۵ شامل Repositoryهای هدفمند و `ITransactionRunner` پیاده‌سازی شد؛ تصمیم D-024 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۱.۶ شامل Result Pattern پایه و تغییر نام خروجی به `CreateActivityResponse` پیاده‌سازی شد؛ تصمیم D-025 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۱.۷ شامل `ActivityCreatedEvent` و Port عمومی `IIntegrationEventPublisher` پیاده‌سازی شد؛ نام‌گذاری و Versioning ساده نگه داشته شدند و تصمیم D-026 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۱.۸ شامل جریان پایه `CreateActivityHandler` و تست مسیر موفق، Validation و نبودن Contact پیاده‌سازی شد؛ تصمیم D-027 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۸ | بنا بر بازبینی مرحله ۱.۸، `ITransactionRunner` با `IUnitOfWork` جایگزین شد؛ `CrmDbContext` در Infrastructure باقی ماند و تصمیم D-028 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۱.۹ شامل Idempotent Replay و Payload Conflict بدون اثر جانبی جدید پیاده‌سازی شد؛ تصمیم D-029 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۱.۱۰ شامل قرارداد Duplicate Request Key و مدیریت Replay یا Payload Conflict پس از باخت در Race پیاده‌سازی شد؛ تصمیم D-030 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۲.۱ شامل EF Core 8، `CrmDbContext`، اتصال `IUnitOfWork` و ثبت SQL Server در DI پیاده‌سازی شد؛ تصمیم D-031 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۸ | زیرمرحله ۲.۲ شامل نگاشت جدول‌های قدیمی `crmActivity` و `cntContact` و تست EF Model پیاده‌سازی شد؛ تصمیم D-032 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | بنا بر بازبینی مرحله ۲.۲، `ContactRecord` با Entity محدود `Contact` در Domain جایگزین شد؛ تصمیم D-033 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۳ شامل مدل و نگاشت ماندگار Outbox و وضعیت‌های انتشار، Retry و Lease پیاده‌سازی شد؛ تصمیم D-034 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | تصمیم Outbox اختصاصی بازنگری شد؛ مدل دستی با Entityهای استاندارد MassTransit جایگزین و مراحل Polling، Lease و Publisher Confirm دستی حذف شدند؛ تصمیم D-035 ثبت شد. |
 
 </div>

@@ -1,6 +1,7 @@
 using DidarCrm.Application.Abstractions.Persistence;
 using DidarCrm.Domain.Activities;
 using DidarCrm.Domain.Contacts;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
 namespace DidarCrm.Infrastructure.Persistence;
@@ -14,7 +15,12 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
+
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(CrmDbContext).Assembly);
+        modelBuilder.AddInboxStateEntity();
+        modelBuilder.AddOutboxMessageEntity();
+        modelBuilder.AddOutboxStateEntity();
     }
 
     async Task IUnitOfWork.SaveChangesAsync(CancellationToken cancellationToken)
