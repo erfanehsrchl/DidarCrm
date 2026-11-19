@@ -34,8 +34,6 @@ public sealed class CreateActivityHandler
         CreateActivityCommand command,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(command);
-
         TenantId tenantId;
         ContactId contactId;
         RequestKey requestKey;
@@ -52,6 +50,28 @@ public sealed class CreateActivityHandler
         {
             return Result<CreateActivityResponse>.Failure(
                 new Error("Activity.Validation", exception.Message, ErrorType.Validation));
+        }
+
+        var existingActivity = await _activityRepository.GetByRequestKeyAsync(
+            tenantId,
+            requestKey,
+            cancellationToken);
+
+        if (existingActivity is not null)
+        {
+            if (existingActivity.ContactId != contactId || existingActivity.Title != title)
+            {
+                return Result<CreateActivityResponse>.Failure(
+                    new Error(
+                        "Activity.IdempotencyConflict",
+                        "The idempotency key has already been used with a different payload.",
+                        ErrorType.Conflict));
+            }
+
+            return Result<CreateActivityResponse>.Success(
+                new CreateActivityResponse(
+                    existingActivity.Id.Value,
+                    existingActivity.CreatedAtUtc));
         }
 
         var createdAtUtc = _clock.UtcNow;
