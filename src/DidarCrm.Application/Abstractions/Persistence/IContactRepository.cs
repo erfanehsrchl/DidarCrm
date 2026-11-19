@@ -1,12 +1,12 @@
 using DidarCrm.Domain.Activities;
+using DidarCrm.Domain.Contacts;
 
 namespace DidarCrm.Application.Abstractions.Persistence;
 
 public interface IContactRepository
 {
-    Task<bool> AdvanceLastActivityAtAsync(
+    Task<Contact?> GetAsync(
         TenantId tenantId,
         ContactId contactId,
-        DateTimeOffset activityCreatedAtUtc,
         CancellationToken cancellationToken);
 }

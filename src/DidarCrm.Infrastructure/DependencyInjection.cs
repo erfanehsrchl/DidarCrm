@@ -21,6 +21,7 @@ public static class DependencyInjection
             serviceProvider.GetRequiredService<CrmDbContext>());
 
         services.AddScoped<IActivityRepository, ActivityRepository>();
+        services.AddScoped<IContactRepository, ContactRepository>();
         services.AddScoped<IIntegrationEventPublisher, MassTransitIntegrationEventPublisher>();
 
         return services;

@@ -36,7 +36,7 @@ public sealed class CrmDbContextModelTests
         Assert.Equal("cntContact", contact.GetTableName());
         Assert.NotNull(contact.FindProperty("Id"));
         Assert.NotNull(contact.FindProperty("TenantId"));
-        Assert.NotNull(contact.FindProperty("LastActivityAt"));
+        Assert.True(contact.FindProperty("LastActivityAt")?.IsConcurrencyToken);
 
         var tableNames = dbContext.Model
             .GetEntityTypes()

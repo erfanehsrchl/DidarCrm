@@ -5,6 +5,7 @@ using DidarCrm.Application.Activities.CreateActivity;
 using DidarCrm.Application.Activities.Events;
 using DidarCrm.Application.Common.Results;
 using DidarCrm.Domain.Activities;
+using DidarCrm.Domain.Contacts;
 
 namespace DidarCrm.UnitTests.Application.Activities;
 
@@ -44,10 +45,10 @@ public sealed class CreateActivityHandlerTests
         Assert.Equal(command.RequestKey, activity.RequestKey.Value);
         Assert.Equal("Follow up", activity.Title.Value);
 
-        var contactUpdate = Assert.Single(contactRepository.Updates);
-        Assert.Equal(command.TenantId, contactUpdate.TenantId.Value);
-        Assert.Equal(command.ContactId, contactUpdate.ContactId.Value);
-        Assert.Equal(CreatedAtUtc, contactUpdate.CreatedAtUtc);
+        Assert.NotNull(contactRepository.LoadedContact);
+        Assert.Equal(command.TenantId, contactRepository.LoadedContact.TenantId.Value);
+        Assert.Equal(command.ContactId, contactRepository.LoadedContact.Id.Value);
+        Assert.Equal(CreatedAtUtc, contactRepository.LoadedContact.LastActivityAt);
 
         var activityCreated = Assert.IsType<ActivityCreatedEvent>(
             Assert.Single(eventPublisher.PublishedEvents));
@@ -139,7 +140,7 @@ public sealed class CreateActivityHandlerTests
         Assert.Equal(existingActivity.Id.Value, result.Value.ActivityId);
         Assert.Equal(existingActivity.CreatedAtUtc, result.Value.CreatedAtUtc);
         Assert.Empty(activityRepository.AddedActivities);
-        Assert.Empty(contactRepository.Updates);
+        Assert.Equal(0, contactRepository.GetCallCount);
         Assert.Empty(eventPublisher.PublishedEvents);
         Assert.Equal(0, unitOfWork.SaveChangesCount);
     }
@@ -178,7 +179,7 @@ public sealed class CreateActivityHandlerTests
         Assert.Equal("Activity.IdempotencyConflict", result.Error.Code);
         Assert.Equal(ErrorType.Conflict, result.Error.Type);
         Assert.Empty(activityRepository.AddedActivities);
-        Assert.Empty(contactRepository.Updates);
+        Assert.Equal(0, contactRepository.GetCallCount);
         Assert.Empty(eventPublisher.PublishedEvents);
         Assert.Equal(0, unitOfWork.SaveChangesCount);
     }
@@ -303,16 +304,24 @@ public sealed class CreateActivityHandlerTests
     {
         public bool ContactExists { get; init; } = true;
 
-        public List<(TenantId TenantId, ContactId ContactId, DateTimeOffset CreatedAtUtc)> Updates { get; } = [];
+        public int GetCallCount { get; private set; }
 
-        public Task<bool> AdvanceLastActivityAtAsync(
+        public Contact? LoadedContact { get; private set; }
+
+        public Task<Contact?> GetAsync(
             TenantId tenantId,
             ContactId contactId,
-            DateTimeOffset activityCreatedAtUtc,
             CancellationToken cancellationToken)
         {
-            Updates.Add((tenantId, contactId, activityCreatedAtUtc));
-            return Task.FromResult(ContactExists);
+            GetCallCount++;
+
+            if (!ContactExists)
+            {
+                return Task.FromResult<Contact?>(null);
+            }
+
+            LoadedContact = Contact.Create(contactId, tenantId);
+            return Task.FromResult<Contact?>(LoadedContact);
         }
     }
 

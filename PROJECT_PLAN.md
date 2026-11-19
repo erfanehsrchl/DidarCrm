@@ -347,6 +347,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** `ActivityRepository` برای خواندن Activity بر اساس `(TenantId, RequestKey)` از `AsNoTracking` و `SingleOrDefaultAsync` استفاده می‌کند. افزودن Activity فقط آن را به Change Tracker همان `CrmDbContext` اضافه می‌کند و Repository مستقیماً `SaveChangesAsync` اجرا نمی‌کند.
 - **دلیل:** Query بدون Tracking به Handler اجازه می‌دهد بعد از شکست Unique Index، رکورد برنده‌ی Commit‌شده را از دیتابیس بخواند و Entity بازنده‌ی موجود در Change Tracker نتیجه را آلوده نکند. `SingleOrDefaultAsync` نیز نقض احتمالی تضمین یکتایی را پنهان نمی‌کند. Commit باید در `IUnitOfWork` باقی بماند تا Activity، Contact و Outbox اتمیک باشند.
 
+### D-038 — به‌روزرسانی Monotonic مربوط به Contact
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** Entity دامنه `Contact` مسئول جلو بردن `LastActivityAt` است و مقدار مساوی یا قدیمی‌تر را نادیده می‌گیرد. `ContactRepository` فقط Contact را با Tracking و بر اساس Tenant و Contact Id می‌خواند؛ `CreateActivityHandler` نبودن Contact را مدیریت و رفتار Domain را فراخوانی می‌کند. ستون `LastActivityAt` در EF Core یک Concurrency Token است.
+- **دلیل:** قانون رو به جلو بودن زمان یک Invariant دامنه است و Application باید اجرای این رفتار را به‌صورت صریح Orchestrate کند؛ Repository فقط مسئول بازیابی Aggregate است. Tracking باعث می‌شود تغییر همراه Activity و Outbox در یک `SaveChangesAsync` ذخیره شود و Concurrency Token از Lost Update خاموش جلوگیری می‌کند. Resolve و Retry مربوط به `DbUpdateConcurrencyException` در مرحله ۲.۵ تکمیل خواهد شد.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -458,16 +464,18 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۲.۴.۱ — ActivityRepository
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - پیاده‌سازی Query بر اساس Tenant و Request Key با `AsNoTracking`.
 - پیاده‌سازی Add بدون Commit و ثبت Repository در DI.
 - تست واقعی Query پس از ایجاد Migration و SQL Server Testcontainer اضافه می‌شود.
 
 #### مرحله ۲.۴.۲ — ContactRepository
 
-- **وضعیت:** شروع‌نشده
-- پیاده‌سازی پیدا کردن Contact و جلو بردن Monotonic مقدار `LastActivityAt`.
-- ثبت Repository در DI؛ تست رفتار Relational در مرحله SQL Server انجام می‌شود.
+- **وضعیت:** آماده‌بازبینی
+- پیاده‌سازی Repository فقط برای بازیابی Tracking شده‌ی Contact.
+- فراخوانی رفتار Monotonic در `CreateActivityHandler`.
+- ثبت Repository در DI و افزودن تست رفتار Domain.
+- `LastActivityAt` به‌عنوان Concurrency Token ثبت شده است؛ Resolve و Retry در مرحله ۲.۵ و تست Relational در مرحله SQL Server انجام می‌شوند.
 
 #### مرحله ۲.۵ — UnitOfWork و مرز تراکنش
 
@@ -676,5 +684,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | تصمیم Outbox اختصاصی بازنگری شد؛ مدل دستی با Entityهای استاندارد MassTransit جایگزین و مراحل Polling، Lease و Publisher Confirm دستی حذف شدند؛ تصمیم D-035 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۳.۱ شامل Adapter قرارداد انتشار Application روی `IPublishEndpoint` با حفظ Runtime Type پیام پیاده‌سازی شد؛ تصمیم D-036 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۴.۱ شامل پیاده‌سازی و ثبت `ActivityRepository` با Query بدون Tracking و Add بدون Commit انجام شد؛ تصمیم D-037 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۴.۲ شامل رفتار Monotonic در `Contact`، پیاده‌سازی `ContactRepository` و ثبت Concurrency Token انجام شد؛ تصمیم D-038 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | پس از بازبینی مرحله ۲.۴.۲، فراخوانی `AdvanceLastActivityAt` از Repository به Handler منتقل و مسئولیت Repository به بازیابی Contact محدود شد. |
 
 </div>

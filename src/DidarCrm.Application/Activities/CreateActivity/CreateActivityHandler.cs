@@ -63,13 +63,12 @@ public sealed class CreateActivityHandler
         }
 
         var createdAtUtc = _clock.UtcNow;
-        var contactExists = await _contactRepository.AdvanceLastActivityAtAsync(
+        var contact = await _contactRepository.GetAsync(
             tenantId,
             contactId,
-            createdAtUtc,
             cancellationToken);
 
-        if (!contactExists)
+        if (contact is null)
         {
             return Result<CreateActivityResponse>.Failure(
                 new Error(
@@ -77,6 +76,8 @@ public sealed class CreateActivityHandler
                     "The contact was not found for the specified tenant.",
                     ErrorType.NotFound));
         }
+
+        contact.AdvanceLastActivityAt(createdAtUtc);
 
         var activity = CustomerActivity.Create(
             tenantId,

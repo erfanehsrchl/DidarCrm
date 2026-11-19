@@ -21,6 +21,7 @@ internal sealed class ContactConfiguration : IEntityTypeConfiguration<Contact>
             .HasConversion(id => id.Value, value => TenantId.From(value))
             .IsRequired();
 
-        builder.Property(contact => contact.LastActivityAt);
+        builder.Property(contact => contact.LastActivityAt)
+            .IsConcurrencyToken();
     }
 }
