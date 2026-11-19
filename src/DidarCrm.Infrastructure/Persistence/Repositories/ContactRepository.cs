@@ -19,4 +19,15 @@ internal sealed class ContactRepository(CrmDbContext dbContext)
                 contact.Id == contactId,
             cancellationToken);
     }
+
+    public async Task<bool> ReloadAsync(
+        Contact contact,
+        CancellationToken cancellationToken)
+    {
+        var entry = dbContext.Entry(contact);
+
+        await entry.ReloadAsync(cancellationToken);
+
+        return entry.State != EntityState.Detached;
+    }
 }

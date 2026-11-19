@@ -1,4 +1,3 @@
-using DidarCrm.Application.Abstractions.Persistence;
 using DidarCrm.Domain.Activities;
 using DidarCrm.Domain.Contacts;
 using MassTransit;
@@ -7,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 namespace DidarCrm.Infrastructure.Persistence;
 
 public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options)
-    : DbContext(options), IUnitOfWork
+    : DbContext(options)
 {
     public DbSet<CustomerActivity> Activities => Set<CustomerActivity>();
 
@@ -21,10 +20,5 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options)
         modelBuilder.AddInboxStateEntity();
         modelBuilder.AddOutboxMessageEntity();
         modelBuilder.AddOutboxStateEntity();
-    }
-
-    async Task IUnitOfWork.SaveChangesAsync(CancellationToken cancellationToken)
-    {
-        await SaveChangesAsync(cancellationToken);
     }
 }

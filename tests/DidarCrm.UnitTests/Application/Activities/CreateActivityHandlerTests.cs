@@ -255,6 +255,34 @@ public sealed class CreateActivityHandlerTests
         Assert.Equal(1, unitOfWork.SaveChangesCount);
     }
 
+    [Fact]
+    public async Task Handle_reloads_contact_and_reapplies_domain_behavior_after_concurrency_conflict()
+    {
+        var databaseTimestamp = CreatedAtUtc.AddMinutes(5);
+        var contactRepository = new ContactRepositoryFake
+        {
+            TimestampAfterReload = databaseTimestamp
+        };
+        var unitOfWork = new UnitOfWorkFake();
+        unitOfWork.SaveExceptions.Enqueue(
+            new PersistenceConcurrencyException(new InvalidOperationException()));
+        var handler = CreateHandler(
+            contactRepository: contactRepository,
+            unitOfWork: unitOfWork);
+        var command = new CreateActivityCommand(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "request-123",
+            "Follow up");
+
+        var result = await handler.HandleAsync(command);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(2, unitOfWork.SaveChangesCount);
+        Assert.Equal(1, contactRepository.ReloadCount);
+        Assert.Equal(databaseTimestamp, contactRepository.LoadedContact?.LastActivityAt);
+    }
+
     private static CreateActivityHandler CreateHandler(
         ActivityRepositoryFake? activityRepository = null,
         ContactRepositoryFake? contactRepository = null,
@@ -308,6 +336,10 @@ public sealed class CreateActivityHandlerTests
 
         public Contact? LoadedContact { get; private set; }
 
+        public DateTimeOffset? TimestampAfterReload { get; init; }
+
+        public int ReloadCount { get; private set; }
+
         public Task<Contact?> GetAsync(
             TenantId tenantId,
             ContactId contactId,
@@ -322,6 +354,20 @@ public sealed class CreateActivityHandlerTests
 
             LoadedContact = Contact.Create(contactId, tenantId);
             return Task.FromResult<Contact?>(LoadedContact);
+        }
+
+        public Task<bool> ReloadAsync(
+            Contact contact,
+            CancellationToken cancellationToken)
+        {
+            ReloadCount++;
+
+            if (TimestampAfterReload is not null)
+            {
+                contact.AdvanceLastActivityAt(TimestampAfterReload.Value);
+            }
+
+            return Task.FromResult(true);
         }
     }
 
@@ -342,11 +388,18 @@ public sealed class CreateActivityHandlerTests
     {
         public Exception? SaveException { get; init; }
 
+        public Queue<Exception> SaveExceptions { get; } = new();
+
         public int SaveChangesCount { get; private set; }
 
         public Task SaveChangesAsync(CancellationToken cancellationToken)
         {
             SaveChangesCount++;
+
+            if (SaveExceptions.TryDequeue(out var exception))
+            {
+                return Task.FromException(exception);
+            }
 
             return SaveException is null
                 ? Task.CompletedTask

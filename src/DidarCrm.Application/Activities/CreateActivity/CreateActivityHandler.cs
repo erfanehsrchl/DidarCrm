@@ -10,6 +10,8 @@ namespace DidarCrm.Application.Activities.CreateActivity;
 
 public sealed class CreateActivityHandler
 {
+    private const int MaxContactConcurrencyAttempts = 3;
+
     private readonly IActivityRepository _activityRepository;
     private readonly IContactRepository _contactRepository;
     private readonly IIntegrationEventPublisher _eventPublisher;
@@ -98,23 +100,41 @@ public sealed class CreateActivityHandler
                 activity.CreatedAtUtc),
             cancellationToken);
 
-        try
+        for (var attempt = 1; ; attempt++)
         {
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-        catch (DuplicateRequestKeyException)
-        {
-            existingActivity = await _activityRepository.GetByRequestKeyAsync(
-                tenantId,
-                requestKey,
-                cancellationToken);
-
-            if (existingActivity is null)
+            try
             {
-                throw;
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+                break;
             }
+            catch (PersistenceConcurrencyException)
+                when (attempt < MaxContactConcurrencyAttempts)
+            {
+                var contactStillExists = await _contactRepository.ReloadAsync(
+                    contact,
+                    cancellationToken);
 
-            return CreateResultForExistingActivity(existingActivity, contactId, title);
+                if (!contactStillExists)
+                {
+                    throw;
+                }
+
+                contact.AdvanceLastActivityAt(createdAtUtc);
+            }
+            catch (DuplicateRequestKeyException)
+            {
+                existingActivity = await _activityRepository.GetByRequestKeyAsync(
+                    tenantId,
+                    requestKey,
+                    cancellationToken);
+
+                if (existingActivity is null)
+                {
+                    throw;
+                }
+
+                return CreateResultForExistingActivity(existingActivity, contactId, title);
+            }
         }
 
         return Result<CreateActivityResponse>.Success(

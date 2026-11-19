@@ -9,4 +9,8 @@ public interface IContactRepository
         TenantId tenantId,
         ContactId contactId,
         CancellationToken cancellationToken);
+
+    Task<bool> ReloadAsync(
+        Contact contact,
+        CancellationToken cancellationToken);
 }

@@ -289,7 +289,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 ### D-028 — DbContext به‌عنوان Unit of Work
 
-- **وضعیت:** پذیرفته‌شده
+- **وضعیت:** اصلاح‌شده توسط D-040
 - **تصمیم:** Application فقط به قرارداد کوچک `IUnitOfWork.SaveChangesAsync` وابسته است. `CrmDbContext` در Infrastructure باقی می‌ماند، این قرارداد را پیاده‌سازی می‌کند و تمام تغییرات Trackشده شامل Contact، Activity و Outbox را با یک `SaveChangesAsync` اتمیک ذخیره خواهد کرد. `ITransactionRunner` حذف می‌شود.
 - **دلیل:** خود EF Core DbContext پیاده‌سازی طبیعی Unit of Work است. این طراحی Handler را از Lambda تراکنشی ساده‌تر می‌کند و در عین حال وابستگی Application به EF Core را به وجود نمی‌آورد.
 
@@ -307,8 +307,8 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 ### D-031 — پایه EF Core و مالکیت DbContext
 
-- **وضعیت:** پذیرفته‌شده
-- **تصمیم:** `CrmDbContext` در Infrastructure قرار دارد، با EF Core 8 و Provider مربوط به SQL Server از طریق DI ثبت می‌شود و پیاده‌سازی Scoped قرارداد `IUnitOfWork` است. API فقط Connection String با نام `Database` را به Infrastructure تحویل می‌دهد. Connection String فعلی برای LocalDB محیط توسعه است و در مرحله Docker Compose با Configuration محیطی جایگزین می‌شود.
+- **وضعیت:** اصلاح‌شده توسط D-040
+- **تصمیم:** `CrmDbContext` در Infrastructure قرار دارد و با EF Core 8 و Provider مربوط به SQL Server از طریق DI ثبت می‌شود. API فقط Connection String با نام `Database` را به Infrastructure تحویل می‌دهد. Connection String فعلی برای LocalDB محیط توسعه است و در مرحله Docker Compose با Configuration محیطی جایگزین می‌شود. پیاده‌سازی مستقیم `IUnitOfWork` بعداً مطابق D-040 از DbContext جدا شد.
 - **دلیل:** Application به EF Core وابسته نمی‌شود و Repositoryها و Unit of Work آینده در هر Request همان Instance از DbContext را به اشتراک خواهند گذاشت. این مرحله فقط زیرساخت اتصال را آماده می‌کند و هنوز هیچ Entity Mapping یا Migration ایجاد نمی‌کند.
 
 ### D-032 — نگاشت جدول‌های قدیمی
@@ -352,6 +352,24 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **وضعیت:** پذیرفته‌شده
 - **تصمیم:** Entity دامنه `Contact` مسئول جلو بردن `LastActivityAt` است و مقدار مساوی یا قدیمی‌تر را نادیده می‌گیرد. `ContactRepository` فقط Contact را با Tracking و بر اساس Tenant و Contact Id می‌خواند؛ `CreateActivityHandler` نبودن Contact را مدیریت و رفتار Domain را فراخوانی می‌کند. ستون `LastActivityAt` در EF Core یک Concurrency Token است.
 - **دلیل:** قانون رو به جلو بودن زمان یک Invariant دامنه است و Application باید اجرای این رفتار را به‌صورت صریح Orchestrate کند؛ Repository فقط مسئول بازیابی Aggregate است. Tracking باعث می‌شود تغییر همراه Activity و Outbox در یک `SaveChangesAsync` ذخیره شود و Concurrency Token از Lost Update خاموش جلوگیری می‌کند. Resolve و Retry مربوط به `DbUpdateConcurrencyException` در مرحله ۲.۵ تکمیل خواهد شد.
+
+### D-039 — Resolve کردن Contact Concurrency در Unit of Work
+
+- **وضعیت:** اصلاح‌شده توسط D-041
+- **تصمیم:** پیاده‌سازی `IUnitOfWork.SaveChangesAsync` فقط `DbUpdateConcurrencyException`هایی را Resolve می‌کند که تمام Entryهای آن‌ها `Contact` باشند. وضعیت فعلی دیتابیس دوباره روی Entity بارگذاری و قصد قبلی Request با فراخوانی مجدد `Contact.AdvanceLastActivityAt` اعمال می‌شود؛ کل `SaveChanges` حداکثر سه بار تلاش می‌شود. حذف Contact، Conflict مربوط به Entity دیگر یا تمام‌شدن تعداد تلاش‌ها بدون تبدیل دوباره پرتاب می‌شود.
+- **دلیل:** این Retry قانون Monotonic را در شرایط Commit هم‌زمان حفظ می‌کند و چون SaveChanges ناموفق به‌صورت اتمیک Rollback می‌شود، Activity و Outbox در تلاش بعدی همراه Contact دوباره ذخیره می‌شوند. محدودکردن نوع Conflict و تعداد تلاش از پنهان‌شدن خطاهای واقعی یا Retry بی‌نهایت جلوگیری می‌کند.
+
+### D-040 — جداسازی EfUnitOfWork از CrmDbContext
+
+- **وضعیت:** اصلاح‌شده توسط D-041
+- **تصمیم:** `CrmDbContext` فقط مسئول EF Model و Change Tracking است و دیگر `IUnitOfWork` را پیاده‌سازی نمی‌کند. `EfUnitOfWork` مستقل مسئول Save، Retry و ترجمه‌ی خطاهای Persistence است. هنگام Contact Concurrency، Infrastructure فقط State دیتابیس را Reload می‌کند و تصمیم Monotonic با اجرای مجدد متد Domain گرفته می‌شود.
+- **دلیل:** با اضافه‌شدن Retry و ترجمه خطا، قرار دادن Policyهای Persistence داخل DbContext مسئولیت آن را بیش از حد گسترده می‌کرد. همچنین مقایسه مستقیم Timestampها در Infrastructure قانون تجاری Domain را تکرار می‌کرد. جداسازی جدید DbContext را ساده و قانون انتخاب زمان را فقط در `Contact` نگه می‌دارد.
+
+### D-041 — Orchestration مربوط به Contact Concurrency در Application
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `EfUnitOfWork` هیچ شناختی از Contact ندارد و فقط `DbUpdateConcurrencyException` را به `PersistenceConcurrencyException` عمومی تبدیل می‌کند. `CreateActivityHandler` با Retry محدود، از `IContactRepository.ReloadAsync` برای Refresh فنی Entity استفاده و سپس رفتار `Contact.AdvanceLastActivityAt` را دوباره اجرا می‌کند.
+- **دلیل:** تشخیص اینکه Conflict این Use Case قابل Retry است و اجرای دوباره رفتار Contact بخشی از Workflow کاربردی است، نه مسئولیت DbContext یا Unit of Work عمومی. Repository فقط عملیات Persistence مربوط به Reload را پنهان می‌کند و قانون انتخاب Timestamp صرفاً در Domain باقی می‌ماند.
 
 ## ۶. مراحل پیاده‌سازی
 
@@ -471,16 +489,31 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۲.۴.۲ — ContactRepository
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - پیاده‌سازی Repository فقط برای بازیابی Tracking شده‌ی Contact.
 - فراخوانی رفتار Monotonic در `CreateActivityHandler`.
 - ثبت Repository در DI و افزودن تست رفتار Domain.
 - `LastActivityAt` به‌عنوان Concurrency Token ثبت شده است؛ Resolve و Retry در مرحله ۲.۵ و تست Relational در مرحله SQL Server انجام می‌شوند.
 
-#### مرحله ۲.۵ — UnitOfWork و مرز تراکنش
+#### مرحله ۲.۵.۱ — Resolve مربوط به Contact Concurrency
+
+- **وضعیت:** آماده‌بازبینی
+- Resolve کردن Conflict فقط برای `Contact` و حفظ بزرگ‌ترین `LastActivityAt`.
+- Retry محدود کل `SaveChangesAsync` برای حفظ Activity، Contact و Outbox در یک Commit.
+- ترجمه عمومی خطای EF در `EfUnitOfWork` و Orchestration مربوط به Reload و Retry در Handler.
+- اجرای مجدد رفتار Domain پس از Reload وضعیت دیتابیس.
+- تست واقعی Retry پس از Migration روی SQL Server اضافه می‌شود.
+
+#### مرحله ۲.۵.۲ — ترجمه Duplicate Request Key
 
 - **وضعیت:** شروع‌نشده
-- پیاده‌سازی تراکنش اتمیک و تست Rollback.
+- تبدیل خطای Unique Index مشخص `(TenantId, RequestKey)` به `DuplicateRequestKeyException`.
+- سایر خطاهای `DbUpdateException` بدون تغییر منتشر می‌شوند.
+
+#### مرحله ۲.۵.۳ — تست Rollback تراکنش
+
+- **وضعیت:** شروع‌نشده
+- اثبات Rollback اتمیک Activity، Contact و Outbox روی SQL Server واقعی.
 
 #### مرحله ۲.۶ — Migration و Indexهای Idempotency
 
@@ -686,5 +719,8 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۴.۱ شامل پیاده‌سازی و ثبت `ActivityRepository` با Query بدون Tracking و Add بدون Commit انجام شد؛ تصمیم D-037 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۴.۲ شامل رفتار Monotonic در `Contact`، پیاده‌سازی `ContactRepository` و ثبت Concurrency Token انجام شد؛ تصمیم D-038 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | پس از بازبینی مرحله ۲.۴.۲، فراخوانی `AdvanceLastActivityAt` از Repository به Handler منتقل و مسئولیت Repository به بازیابی Contact محدود شد. |
+| ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۵.۱ شامل Resolve هدفمند Contact Concurrency و Retry محدود `SaveChangesAsync` پیاده‌سازی شد؛ تصمیم D-039 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | پس از بازبینی مرحله ۲.۵.۱، `EfUnitOfWork` از `CrmDbContext` جدا و مقایسه‌ی تجاری Timestamp از Infrastructure حذف شد؛ تصمیم D-040 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | پس از بازبینی دوباره مرحله ۲.۵.۱، شناخت Contact و Retry از `EfUnitOfWork` حذف و به Orchestration لایه Application منتقل شد؛ تصمیم D-041 ثبت شد. |
 
 </div>

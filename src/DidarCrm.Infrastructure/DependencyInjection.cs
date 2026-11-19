@@ -17,8 +17,7 @@ public static class DependencyInjection
         services.AddDbContext<CrmDbContext>(options =>
             options.UseSqlServer(connectionString));
 
-        services.AddScoped<IUnitOfWork>(serviceProvider =>
-            serviceProvider.GetRequiredService<CrmDbContext>());
+        services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 
         services.AddScoped<IActivityRepository, ActivityRepository>();
         services.AddScoped<IContactRepository, ContactRepository>();
