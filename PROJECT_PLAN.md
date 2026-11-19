@@ -371,6 +371,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** `EfUnitOfWork` هیچ شناختی از Contact ندارد و فقط `DbUpdateConcurrencyException` را به `PersistenceConcurrencyException` عمومی تبدیل می‌کند. `CreateActivityHandler` با Retry محدود، از `IContactRepository.ReloadAsync` برای Refresh فنی Entity استفاده و سپس رفتار `Contact.AdvanceLastActivityAt` را دوباره اجرا می‌کند.
 - **دلیل:** تشخیص اینکه Conflict این Use Case قابل Retry است و اجرای دوباره رفتار Contact بخشی از Workflow کاربردی است، نه مسئولیت DbContext یا Unit of Work عمومی. Repository فقط عملیات Persistence مربوط به Reload را پنهان می‌کند و قانون انتخاب Timestamp صرفاً در Domain باقی می‌ماند.
 
+### D-042 — ترجمه خطای Unique Index مربوط به Request Key
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `EfUnitOfWork` فقط خطاهای SQL Server با شماره `2601` یا `2627` را که نام Index برابر `UX_crmActivity_TenantId_RequestKey` دارند به `DuplicateRequestKeyException` تبدیل می‌کند. سایر `DbUpdateException`ها بدون تغییر منتشر می‌شوند. نام Index به‌صورت Constant مشترک با Configuration نگهداری می‌شود.
+- **دلیل:** شماره‌های 2601 و 2627 می‌توانند برای Unique Constraintهای دیگری نیز رخ دهند؛ بررسی نام Index مانع تبدیل اشتباه خطاهای نامرتبط به Replay می‌شود. Application فقط مفهوم باخت در Race مربوط به Request Key را می‌شناسد و به SQL Server وابسته نمی‌شود.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -497,7 +503,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۲.۵.۱ — Resolve مربوط به Contact Concurrency
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - Resolve کردن Conflict فقط برای `Contact` و حفظ بزرگ‌ترین `LastActivityAt`.
 - Retry محدود کل `SaveChangesAsync` برای حفظ Activity، Contact و Outbox در یک Commit.
 - ترجمه عمومی خطای EF در `EfUnitOfWork` و Orchestration مربوط به Reload و Retry در Handler.
@@ -506,9 +512,10 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۲.۵.۲ — ترجمه Duplicate Request Key
 
-- **وضعیت:** شروع‌نشده
+- **وضعیت:** آماده‌بازبینی
 - تبدیل خطای Unique Index مشخص `(TenantId, RequestKey)` به `DuplicateRequestKeyException`.
 - سایر خطاهای `DbUpdateException` بدون تغییر منتشر می‌شوند.
+- ایجاد خود Index و تست واقعی خطا در مرحله ۲.۶ انجام می‌شود.
 
 #### مرحله ۲.۵.۳ — تست Rollback تراکنش
 
@@ -722,5 +729,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۵.۱ شامل Resolve هدفمند Contact Concurrency و Retry محدود `SaveChangesAsync` پیاده‌سازی شد؛ تصمیم D-039 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | پس از بازبینی مرحله ۲.۵.۱، `EfUnitOfWork` از `CrmDbContext` جدا و مقایسه‌ی تجاری Timestamp از Infrastructure حذف شد؛ تصمیم D-040 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | پس از بازبینی دوباره مرحله ۲.۵.۱، شناخت Contact و Retry از `EfUnitOfWork` حذف و به Orchestration لایه Application منتقل شد؛ تصمیم D-041 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۵.۲ شامل ترجمه هدفمند خطاهای 2601/2627 مربوط به Index درخواست به `DuplicateRequestKeyException` پیاده‌سازی شد؛ تصمیم D-042 ثبت شد. |
 
 </div>

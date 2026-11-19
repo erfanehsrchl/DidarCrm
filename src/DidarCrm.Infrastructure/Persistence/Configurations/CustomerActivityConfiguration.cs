@@ -7,6 +7,9 @@ namespace DidarCrm.Infrastructure.Persistence.Configurations;
 internal sealed class CustomerActivityConfiguration
     : IEntityTypeConfiguration<CustomerActivity>
 {
+    internal const string RequestKeyUniqueIndexName =
+        "UX_crmActivity_TenantId_RequestKey";
+
     public void Configure(EntityTypeBuilder<CustomerActivity> builder)
     {
         builder.ToTable("crmActivity");
