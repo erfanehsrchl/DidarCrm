@@ -183,6 +183,77 @@ public sealed class CreateActivityHandlerTests
         Assert.Equal(0, unitOfWork.SaveChangesCount);
     }
 
+    [Fact]
+    public async Task Handle_returns_winning_activity_when_an_identical_request_wins_the_save_race()
+    {
+        var command = new CreateActivityCommand(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "request-123",
+            "Follow up");
+        var winningActivity = CustomerActivity.Create(
+            TenantId.From(command.TenantId),
+            ContactId.From(command.ContactId),
+            RequestKey.Create(command.RequestKey),
+            ActivityTitle.Create(command.Title),
+            CreatedAtUtc.AddMilliseconds(-1));
+        var activityRepository = new ActivityRepositoryFake
+        {
+            ActivityAfterSaveConflict = winningActivity
+        };
+        var unitOfWork = new UnitOfWorkFake
+        {
+            SaveException = new DuplicateRequestKeyException()
+        };
+        var handler = CreateHandler(
+            activityRepository: activityRepository,
+            unitOfWork: unitOfWork);
+
+        var result = await handler.HandleAsync(command);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(winningActivity.Id.Value, result.Value.ActivityId);
+        Assert.Equal(winningActivity.CreatedAtUtc, result.Value.CreatedAtUtc);
+        Assert.Equal(2, activityRepository.GetByRequestKeyCallCount);
+        Assert.Equal(1, unitOfWork.SaveChangesCount);
+    }
+
+    [Fact]
+    public async Task Handle_returns_conflict_when_a_different_request_wins_the_save_race()
+    {
+        var tenantId = Guid.NewGuid();
+        var contactId = Guid.NewGuid();
+        var activityRepository = new ActivityRepositoryFake
+        {
+            ActivityAfterSaveConflict = CustomerActivity.Create(
+                TenantId.From(tenantId),
+                ContactId.From(contactId),
+                RequestKey.Create("request-123"),
+                ActivityTitle.Create("Winning title"),
+                CreatedAtUtc.AddMilliseconds(-1))
+        };
+        var unitOfWork = new UnitOfWorkFake
+        {
+            SaveException = new DuplicateRequestKeyException()
+        };
+        var handler = CreateHandler(
+            activityRepository: activityRepository,
+            unitOfWork: unitOfWork);
+        var command = new CreateActivityCommand(
+            tenantId,
+            contactId,
+            "request-123",
+            "Losing title");
+
+        var result = await handler.HandleAsync(command);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("Activity.IdempotencyConflict", result.Error.Code);
+        Assert.Equal(ErrorType.Conflict, result.Error.Type);
+        Assert.Equal(2, activityRepository.GetByRequestKeyCallCount);
+        Assert.Equal(1, unitOfWork.SaveChangesCount);
+    }
+
     private static CreateActivityHandler CreateHandler(
         ActivityRepositoryFake? activityRepository = null,
         ContactRepositoryFake? contactRepository = null,
@@ -201,12 +272,25 @@ public sealed class CreateActivityHandlerTests
     {
         public CustomerActivity? ExistingActivity { get; init; }
 
+        public CustomerActivity? ActivityAfterSaveConflict { get; init; }
+
+        public int GetByRequestKeyCallCount { get; private set; }
+
         public List<CustomerActivity> AddedActivities { get; } = [];
 
         public Task<CustomerActivity?> GetByRequestKeyAsync(
             TenantId tenantId,
             RequestKey requestKey,
-            CancellationToken cancellationToken) => Task.FromResult(ExistingActivity);
+            CancellationToken cancellationToken)
+        {
+            GetByRequestKeyCallCount++;
+
+            var activity = GetByRequestKeyCallCount == 1
+                ? ExistingActivity
+                : ActivityAfterSaveConflict ?? ExistingActivity;
+
+            return Task.FromResult(activity);
+        }
 
         public Task AddAsync(CustomerActivity activity, CancellationToken cancellationToken)
         {
@@ -247,12 +331,17 @@ public sealed class CreateActivityHandlerTests
 
     private sealed class UnitOfWorkFake : IUnitOfWork
     {
+        public Exception? SaveException { get; init; }
+
         public int SaveChangesCount { get; private set; }
 
         public Task SaveChangesAsync(CancellationToken cancellationToken)
         {
             SaveChangesCount++;
-            return Task.CompletedTask;
+
+            return SaveException is null
+                ? Task.CompletedTask
+                : Task.FromException(SaveException);
         }
     }
 

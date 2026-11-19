@@ -59,19 +59,7 @@ public sealed class CreateActivityHandler
 
         if (existingActivity is not null)
         {
-            if (existingActivity.ContactId != contactId || existingActivity.Title != title)
-            {
-                return Result<CreateActivityResponse>.Failure(
-                    new Error(
-                        "Activity.IdempotencyConflict",
-                        "The idempotency key has already been used with a different payload.",
-                        ErrorType.Conflict));
-            }
-
-            return Result<CreateActivityResponse>.Success(
-                new CreateActivityResponse(
-                    existingActivity.Id.Value,
-                    existingActivity.CreatedAtUtc));
+            return CreateResultForExistingActivity(existingActivity, contactId, title);
         }
 
         var createdAtUtc = _clock.UtcNow;
@@ -109,9 +97,46 @@ public sealed class CreateActivityHandler
                 activity.CreatedAtUtc),
             cancellationToken);
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DuplicateRequestKeyException)
+        {
+            existingActivity = await _activityRepository.GetByRequestKeyAsync(
+                tenantId,
+                requestKey,
+                cancellationToken);
+
+            if (existingActivity is null)
+            {
+                throw;
+            }
+
+            return CreateResultForExistingActivity(existingActivity, contactId, title);
+        }
 
         return Result<CreateActivityResponse>.Success(
             new CreateActivityResponse(activity.Id.Value, activity.CreatedAtUtc));
+    }
+
+    private static Result<CreateActivityResponse> CreateResultForExistingActivity(
+        CustomerActivity existingActivity,
+        ContactId contactId,
+        ActivityTitle title)
+    {
+        if (existingActivity.ContactId != contactId || existingActivity.Title != title)
+        {
+            return Result<CreateActivityResponse>.Failure(
+                new Error(
+                    "Activity.IdempotencyConflict",
+                    "The idempotency key has already been used with a different payload.",
+                    ErrorType.Conflict));
+        }
+
+        return Result<CreateActivityResponse>.Success(
+            new CreateActivityResponse(
+                existingActivity.Id.Value,
+                existingActivity.CreatedAtUtc));
     }
 }
