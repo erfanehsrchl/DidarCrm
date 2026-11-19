@@ -383,6 +383,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** EF Model یک Unique Index ترکیبی روی `(TenantId, RequestKey)` با نام `UX_crmActivity_TenantId_RequestKey` و Filter برابر `[RequestKey] IS NOT NULL` دارد. Configuration و Error Translation از یک Constant مشترک برای نام Index استفاده می‌کنند.
 - **دلیل:** یکتایی درخواست‌های جدید باید در دیتابیس تضمین شود، اما میلیون‌ها Activity قدیمی می‌توانند `RequestKey = NULL` داشته باشند. Filter باعث می‌شود رکوردهای قدیمی خارج از محدودیت باشند و در عین حال Race مربوط به کلیدهای جدید توسط SQL Server حل شود.
 
+### D-044 — Migration افزایشی روی Schema قدیمی
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** نخستین Migration پروژه یک Migration از نوع Expand است و وجود جدول‌های قدیمی `crmActivity` و `cntContact` را پیش‌فرض می‌گیرد. این Migration فقط ستون Nullable مربوط به `RequestKey` را به `crmActivity` اضافه می‌کند، جداول استاندارد MassTransit را می‌سازد و Filtered Unique Index را ایجاد می‌کند. متد `Down` نیز فقط همین اجزای جدید را حذف می‌کند و هرگز جدول‌های قدیمی را Drop نمی‌کند. ابزار EF از `CrmDbContextFactory` مستقل از Host استفاده می‌کند.
+- **دلیل:** ساخت دوباره یا حذف جدول‌های قدیمی می‌تواند داده‌های موجود را از بین ببرد. Factory زمان طراحی نیز اجازه می‌دهد Migrationها پیش از تکمیل ثبت RabbitMQ و `IPublishEndpoint` تولید شوند، بدون اینکه رفتار Runtime یا مرزهای Clean Architecture تغییر کند.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -532,8 +538,9 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۲.۶.۲ — Expand Migration
 
-- **وضعیت:** شروع‌نشده
+- **وضعیت:** آماده‌بازبینی
 - ایجاد Migration سازگار برای ستون `RequestKey`، جداول استاندارد MassTransit و Filtered Unique Index.
+- حفظ جدول‌های قدیمی در هر دو مسیر `Up` و `Down` و افزودن Factory مستقل برای ابزار EF.
 
 #### مرحله ۲.۶.۳ — تست Rollback تراکنش
 
@@ -744,5 +751,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | پس از بازبینی دوباره مرحله ۲.۵.۱، شناخت Contact و Retry از `EfUnitOfWork` حذف و به Orchestration لایه Application منتقل شد؛ تصمیم D-041 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۵.۲ شامل ترجمه هدفمند خطاهای 2601/2627 مربوط به Index درخواست به `DuplicateRequestKeyException` پیاده‌سازی شد؛ تصمیم D-042 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۱ شامل تعریف و تست EF Model مربوط به Filtered Unique Index درخواست پیاده‌سازی شد؛ تصمیم D-043 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۲ شامل Migration افزایشی ستون Request Key، جداول MassTransit و Index درخواست پیاده‌سازی شد؛ تصمیم D-044 ثبت شد. |
 
 </div>
