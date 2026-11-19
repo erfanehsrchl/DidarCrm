@@ -335,6 +335,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** به‌جای Outbox، Polling، Lease و Publisher اختصاصی از MassTransit 8.4.0 استفاده می‌شود. Transactional Bus Outbox برای انتشار از API و Consumer Outbox برای Inbox و خروجی Consumerها به کار می‌روند. جداول استاندارد `InboxState`، `OutboxMessage` و `OutboxState` به `CrmDbContext` افزوده می‌شوند. `IIntegrationEventPublisher` در Application باقی می‌ماند و Infrastructure آن را با Adapter روی `IPublishEndpoint` پیاده‌سازی می‌کند.
 - **دلیل:** پیاده‌سازی دستی Outbox شامل Serialization، Locking، Retry، Publisher Confirm، Cleanup و هماهنگی چند Instance است. MassTransit این رفتارها را یکپارچه و آزموده‌شده فراهم می‌کند و Adapter اجازه می‌دهد Application همچنان از Framework پیام‌رسانی مستقل بماند. نسخه ۸ برای سازگاری با .NET 8 و مجوز Apache-2.0 انتخاب شده است.
 
+### D-036 — Adapter انتشار Event روی MassTransit
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `MassTransitIntegrationEventPublisher` قرارداد `IIntegrationEventPublisher` را با استفاده از `IPublishEndpoint` پیاده‌سازی می‌کند و پیام را با Runtime Type واقعی آن Publish می‌کند. Application همچنان هیچ Referenceای به MassTransit ندارد. فعال‌سازی Bus Outbox همراه با RabbitMQ Transport در مرحله ۴.۲ انجام می‌شود.
+- **دلیل:** اگر Event با نوع Compile-time برابر `IIntegrationEvent` منتشر شود، قرارداد عمومی Interface می‌تواند به‌جای Event مشخص استفاده شود. ارسال Runtime Type تضمین می‌کند `ActivityCreatedEvent` قرارداد واقعی پیام باقی بماند. جداکردن Adapter از تنظیم Transport نیز حجم این مرحله را محدود نگه می‌دارد.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -431,7 +437,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۲.۳ — نگاشت Outbox
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - افزودن Package مربوط به MassTransit EF Core.
 - افزودن Entityهای استاندارد `InboxState`، `OutboxMessage` و `OutboxState` به `CrmDbContext`.
 - حذف مدل و Configuration اختصاصی Outbox.
@@ -439,9 +445,10 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۲.۳.۱ — Adapter انتشار Event
 
-- **وضعیت:** شروع‌نشده
+- **وضعیت:** آماده‌بازبینی
 - پیاده‌سازی `IIntegrationEventPublisher` به‌عنوان Adapter روی `IPublishEndpoint`.
-- ثبت MassTransit Bus Outbox روی `CrmDbContext`؛ Commit همراه Activity و Contact توسط `IUnitOfWork` انجام می‌شود.
+- ثبت Adapter در DI.
+- فعال‌سازی Bus Outbox و اتصال RabbitMQ در مرحله ۴.۲ تکمیل می‌شود؛ تا آن مرحله `IPublishEndpoint` هنوز در Container ثبت نشده است.
 
 #### مرحله ۲.۴ — Repositoryهای Activity و Contact
 
@@ -491,6 +498,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 - **وضعیت:** شروع‌نشده
 - افزودن Transport مربوط به MassTransit RabbitMQ و تنظیم Exchange و Queueها.
+- فعال‌سازی Transactional Bus Outbox روی `CrmDbContext` و تکمیل Dependency مربوط به `IPublishEndpoint` در Adapter مرحله ۲.۳.۱.
 
 #### مرحله ۴.۳ — تنظیم Outbox Delivery
 
@@ -652,5 +660,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | بنا بر بازبینی مرحله ۲.۲، `ContactRecord` با Entity محدود `Contact` در Domain جایگزین شد؛ تصمیم D-033 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۳ شامل مدل و نگاشت ماندگار Outbox و وضعیت‌های انتشار، Retry و Lease پیاده‌سازی شد؛ تصمیم D-034 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | تصمیم Outbox اختصاصی بازنگری شد؛ مدل دستی با Entityهای استاندارد MassTransit جایگزین و مراحل Polling، Lease و Publisher Confirm دستی حذف شدند؛ تصمیم D-035 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۳.۱ شامل Adapter قرارداد انتشار Application روی `IPublishEndpoint` با حفظ Runtime Type پیام پیاده‌سازی شد؛ تصمیم D-036 ثبت شد. |
 
 </div>

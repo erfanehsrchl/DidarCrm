@@ -1,4 +1,6 @@
+using DidarCrm.Application.Abstractions.Messaging;
 using DidarCrm.Application.Abstractions.Persistence;
+using DidarCrm.Infrastructure.Messaging;
 using DidarCrm.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,6 +18,8 @@ public static class DependencyInjection
 
         services.AddScoped<IUnitOfWork>(serviceProvider =>
             serviceProvider.GetRequiredService<CrmDbContext>());
+
+        services.AddScoped<IIntegrationEventPublisher, MassTransitIntegrationEventPublisher>();
 
         return services;
     }
