@@ -389,6 +389,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** نخستین Migration پروژه یک Migration از نوع Expand است و وجود جدول‌های قدیمی `crmActivity` و `cntContact` را پیش‌فرض می‌گیرد. این Migration فقط ستون Nullable مربوط به `RequestKey` را به `crmActivity` اضافه می‌کند، جداول استاندارد MassTransit را می‌سازد و Filtered Unique Index را ایجاد می‌کند. متد `Down` نیز فقط همین اجزای جدید را حذف می‌کند و هرگز جدول‌های قدیمی را Drop نمی‌کند. ابزار EF از `CrmDbContextFactory` مستقل از Host استفاده می‌کند.
 - **دلیل:** ساخت دوباره یا حذف جدول‌های قدیمی می‌تواند داده‌های موجود را از بین ببرد. Factory زمان طراحی نیز اجازه می‌دهد Migrationها پیش از تکمیل ثبت RabbitMQ و `IPublishEndpoint` تولید شوند، بدون اینکه رفتار Runtime یا مرزهای Clean Architecture تغییر کند.
 
+### D-045 — تست تراکنش روی SQL Server واقعی
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** تست‌های وابسته به رفتار اختصاصی SQL Server با `Testcontainers.MsSql` و Image مشخص SQL Server 2022 اجرا می‌شوند. تست Rollback ابتدا Schema قدیمی را ایجاد و Expand Migration را واقعاً اعمال می‌کند؛ سپس با ایجاد خطای Unique Index در یک `SaveChangesAsync` تأیید می‌کند که تغییر Contact، Activity جدید و Outbox Message همگی Rollback می‌شوند.
+- **دلیل:** Providerهای In-Memory یا SQLite رفتار تراکنش، Filtered Index و خطاهای SQL Server را دقیق بازتولید نمی‌کنند. این تست فعلاً اتمیک‌بودن Persistence را اثبات می‌کند؛ ثبت خودکار Event توسط MassTransit Bus Outbox پس از فعال‌سازی آن در مرحله ۴.۲ جداگانه تست خواهد شد.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -544,8 +550,9 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۲.۶.۳ — تست Rollback تراکنش
 
-- **وضعیت:** شروع‌نشده
+- **وضعیت:** آماده‌بازبینی
 - اثبات Rollback اتمیک Activity، Contact و Outbox روی SQL Server واقعی پس از اعمال Migration.
+- اجرای تست روی SQL Server موقت با Testcontainers و Schema قدیمی واقعی.
 
 #### مرحله ۲.۷ — تست Concurrency در SQL Server
 
@@ -752,5 +759,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۵.۲ شامل ترجمه هدفمند خطاهای 2601/2627 مربوط به Index درخواست به `DuplicateRequestKeyException` پیاده‌سازی شد؛ تصمیم D-042 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۱ شامل تعریف و تست EF Model مربوط به Filtered Unique Index درخواست پیاده‌سازی شد؛ تصمیم D-043 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۲ شامل Migration افزایشی ستون Request Key، جداول MassTransit و Index درخواست پیاده‌سازی شد؛ تصمیم D-044 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۳ با تست Rollback اتمیک Contact، Activity و Outbox روی SQL Server واقعی پیاده‌سازی شد؛ تصمیم D-045 ثبت شد. |
 
 </div>
