@@ -377,6 +377,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** `EfUnitOfWork` فقط خطاهای SQL Server با شماره `2601` یا `2627` را که نام Index برابر `UX_crmActivity_TenantId_RequestKey` دارند به `DuplicateRequestKeyException` تبدیل می‌کند. سایر `DbUpdateException`ها بدون تغییر منتشر می‌شوند. نام Index به‌صورت Constant مشترک با Configuration نگهداری می‌شود.
 - **دلیل:** شماره‌های 2601 و 2627 می‌توانند برای Unique Constraintهای دیگری نیز رخ دهند؛ بررسی نام Index مانع تبدیل اشتباه خطاهای نامرتبط به Replay می‌شود. Application فقط مفهوم باخت در Race مربوط به Request Key را می‌شناسد و به SQL Server وابسته نمی‌شود.
 
+### D-043 — Filtered Unique Index مربوط به Idempotency
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** EF Model یک Unique Index ترکیبی روی `(TenantId, RequestKey)` با نام `UX_crmActivity_TenantId_RequestKey` و Filter برابر `[RequestKey] IS NOT NULL` دارد. Configuration و Error Translation از یک Constant مشترک برای نام Index استفاده می‌کنند.
+- **دلیل:** یکتایی درخواست‌های جدید باید در دیتابیس تضمین شود، اما میلیون‌ها Activity قدیمی می‌توانند `RequestKey = NULL` داشته باشند. Filter باعث می‌شود رکوردهای قدیمی خارج از محدودیت باشند و در عین حال Race مربوط به کلیدهای جدید توسط SQL Server حل شود.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -517,15 +523,22 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - سایر خطاهای `DbUpdateException` بدون تغییر منتشر می‌شوند.
 - ایجاد خود Index و تست واقعی خطا در مرحله ۲.۶ انجام می‌شود.
 
-#### مرحله ۲.۵.۳ — تست Rollback تراکنش
+#### مرحله ۲.۶.۱ — تعریف Filtered Unique Index
+
+- **وضعیت:** آماده‌بازبینی
+- تعریف Unique Index ترکیبی روی Tenant و Request Key با Filter مربوط به رکوردهای قدیمی.
+- تأیید نام، ترتیب ستون‌ها، یکتایی و Filter در EF Model Test.
+- هنوز Migration یا Index واقعی در SQL Server ایجاد نشده است.
+
+#### مرحله ۲.۶.۲ — Expand Migration
 
 - **وضعیت:** شروع‌نشده
-- اثبات Rollback اتمیک Activity، Contact و Outbox روی SQL Server واقعی.
+- ایجاد Migration سازگار برای ستون `RequestKey`، جداول استاندارد MassTransit و Filtered Unique Index.
 
-#### مرحله ۲.۶ — Migration و Indexهای Idempotency
+#### مرحله ۲.۶.۳ — تست Rollback تراکنش
 
 - **وضعیت:** شروع‌نشده
-- ایجاد Migration سازگار و Filtered Unique Index.
+- اثبات Rollback اتمیک Activity، Contact و Outbox روی SQL Server واقعی پس از اعمال Migration.
 
 #### مرحله ۲.۷ — تست Concurrency در SQL Server
 
@@ -730,5 +743,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | پس از بازبینی مرحله ۲.۵.۱، `EfUnitOfWork` از `CrmDbContext` جدا و مقایسه‌ی تجاری Timestamp از Infrastructure حذف شد؛ تصمیم D-040 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | پس از بازبینی دوباره مرحله ۲.۵.۱، شناخت Contact و Retry از `EfUnitOfWork` حذف و به Orchestration لایه Application منتقل شد؛ تصمیم D-041 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۵.۲ شامل ترجمه هدفمند خطاهای 2601/2627 مربوط به Index درخواست به `DuplicateRequestKeyException` پیاده‌سازی شد؛ تصمیم D-042 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۱ شامل تعریف و تست EF Model مربوط به Filtered Unique Index درخواست پیاده‌سازی شد؛ تصمیم D-043 ثبت شد. |
 
 </div>

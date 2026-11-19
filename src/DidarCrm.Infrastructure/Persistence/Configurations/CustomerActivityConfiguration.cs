@@ -42,6 +42,15 @@ internal sealed class CustomerActivityConfiguration
             .HasColumnName("CreatedAt")
             .IsRequired();
 
+        builder.HasIndex(activity => new
+            {
+                activity.TenantId,
+                activity.RequestKey
+            })
+            .IsUnique()
+            .HasFilter("[RequestKey] IS NOT NULL")
+            .HasDatabaseName(RequestKeyUniqueIndexName);
+
         builder.Property<bool>("WebhookSent")
             .HasDefaultValue(false)
             .IsRequired();

@@ -30,6 +30,18 @@ public sealed class CrmDbContextModelTests
             "CreatedAt",
             activity.FindProperty(nameof(CustomerActivity.CreatedAtUtc))?.GetColumnName());
 
+        var requestKeyIndex = Assert.Single(
+            activity.GetIndexes(),
+            index => index.GetDatabaseName() ==
+                     "UX_crmActivity_TenantId_RequestKey");
+
+        Assert.True(requestKeyIndex.IsUnique);
+        Assert.Equal("[RequestKey] IS NOT NULL", requestKeyIndex.GetFilter());
+        Assert.Collection(
+            requestKeyIndex.Properties,
+            property => Assert.Equal(nameof(CustomerActivity.TenantId), property.Name),
+            property => Assert.Equal(nameof(CustomerActivity.RequestKey), property.Name));
+
         var contact = dbContext.Model.FindEntityType(typeof(Contact));
 
         Assert.NotNull(contact);
