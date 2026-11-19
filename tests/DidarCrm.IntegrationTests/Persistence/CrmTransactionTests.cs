@@ -1,9 +1,15 @@
+using DidarCrm.Application.Abstractions.Messaging;
+using DidarCrm.Application.Abstractions.Persistence;
+using DidarCrm.Application.Abstractions.Time;
+using DidarCrm.Application.Activities.CreateActivity;
 using DidarCrm.Domain.Activities;
 using DidarCrm.Domain.Contacts;
+using DidarCrm.Infrastructure;
 using DidarCrm.Infrastructure.Persistence;
 using MassTransit.EntityFrameworkCoreIntegration;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.MsSql;
 
 namespace DidarCrm.IntegrationTests.Persistence;
@@ -91,6 +97,78 @@ public sealed class CrmTransactionTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task ConcurrentRequests_KeepMaximumLastActivityAtAndPersistBothActivities()
+    {
+        var tenantId = TenantId.From(Guid.NewGuid());
+        var contactId = ContactId.From(Guid.NewGuid());
+        var originalLastActivityAt = new DateTimeOffset(
+            2026,
+            11,
+            20,
+            8,
+            0,
+            0,
+            TimeSpan.Zero);
+        var earlierActivityAt = originalLastActivityAt.AddMinutes(5);
+        var laterActivityAt = originalLastActivityAt.AddMinutes(10);
+
+        await SeedContactAsync(tenantId, contactId, originalLastActivityAt);
+
+        await using var serviceProvider = new ServiceCollection()
+            .AddInfrastructure(_sqlServer.GetConnectionString())
+            .BuildServiceProvider();
+        await using var earlierScope = serviceProvider.CreateAsyncScope();
+        await using var laterScope = serviceProvider.CreateAsyncScope();
+
+        var eventPublisher = new CoordinatedEventPublisher();
+        var laterSaveCompleted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var earlierUnitOfWork = new OrderedUnitOfWork(
+            earlierScope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+            laterSaveCompleted.Task);
+        var laterUnitOfWork = new OrderedUnitOfWork(
+            laterScope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+            Task.CompletedTask,
+            laterSaveCompleted);
+        var earlierHandler = CreateHandler(
+            earlierScope.ServiceProvider,
+            eventPublisher,
+            earlierUnitOfWork,
+            earlierActivityAt);
+        var laterHandler = CreateHandler(
+            laterScope.ServiceProvider,
+            eventPublisher,
+            laterUnitOfWork,
+            laterActivityAt);
+
+        var results = await Task.WhenAll(
+            earlierHandler.HandleAsync(
+                new CreateActivityCommand(
+                    tenantId.Value,
+                    contactId.Value,
+                    "concurrent-earlier",
+                    "Earlier activity")),
+            laterHandler.HandleAsync(
+                new CreateActivityCommand(
+                    tenantId.Value,
+                    contactId.Value,
+                    "concurrent-later",
+                    "Later activity")));
+
+        Assert.All(results, result => Assert.True(result.IsSuccess));
+        Assert.Equal(2, earlierUnitOfWork.SaveCount);
+        Assert.Equal(1, laterUnitOfWork.SaveCount);
+
+        await using var verificationContext = CreateDbContext();
+        var persistedContact = await verificationContext.Contacts
+            .AsNoTracking()
+            .SingleAsync();
+
+        Assert.Equal(laterActivityAt, persistedContact.LastActivityAt);
+        Assert.Equal(2, await verificationContext.Activities.CountAsync());
+    }
+
     private async Task SeedExistingRequestAsync(
         TenantId tenantId,
         ContactId contactId,
@@ -110,6 +188,33 @@ public sealed class CrmTransactionTests : IAsyncLifetime
                 createdAtUtc));
 
         await dbContext.SaveChangesAsync();
+    }
+
+    private async Task SeedContactAsync(
+        TenantId tenantId,
+        ContactId contactId,
+        DateTimeOffset lastActivityAt)
+    {
+        await using var dbContext = CreateDbContext();
+
+        dbContext.Contacts.Add(
+            Contact.Create(contactId, tenantId, lastActivityAt));
+
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static CreateActivityHandler CreateHandler(
+        IServiceProvider serviceProvider,
+        IIntegrationEventPublisher eventPublisher,
+        IUnitOfWork unitOfWork,
+        DateTimeOffset utcNow)
+    {
+        return new CreateActivityHandler(
+            serviceProvider.GetRequiredService<IActivityRepository>(),
+            serviceProvider.GetRequiredService<IContactRepository>(),
+            eventPublisher,
+            unitOfWork,
+            new FixedClock(utcNow));
     }
 
     private CrmDbContext CreateDbContext()
@@ -151,5 +256,61 @@ public sealed class CrmTransactionTests : IAsyncLifetime
         await using var command = connection.CreateCommand();
         command.CommandText = sql;
         await command.ExecuteNonQueryAsync();
+    }
+
+    private sealed class FixedClock(DateTimeOffset utcNow) : IClock
+    {
+        public DateTimeOffset UtcNow { get; } = utcNow;
+    }
+
+    private sealed class CoordinatedEventPublisher : IIntegrationEventPublisher
+    {
+        private readonly TaskCompletionSource _bothRequestsAreReady = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _publishCount;
+
+        public async Task PublishAsync(
+            IIntegrationEvent integrationEvent,
+            CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref _publishCount) == 2)
+            {
+                _bothRequestsAreReady.TrySetResult();
+            }
+
+            await _bothRequestsAreReady.Task.WaitAsync(
+                TimeSpan.FromSeconds(30),
+                cancellationToken);
+        }
+    }
+
+    private sealed class OrderedUnitOfWork(
+        IUnitOfWork innerUnitOfWork,
+        Task waitBeforeSave,
+        TaskCompletionSource? saveCompleted = null) : IUnitOfWork
+    {
+        private int _saveCount;
+
+        public int SaveCount => Volatile.Read(ref _saveCount);
+
+        public async Task SaveChangesAsync(CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _saveCount);
+
+            await waitBeforeSave.WaitAsync(
+                TimeSpan.FromSeconds(30),
+                cancellationToken);
+
+            try
+            {
+                await innerUnitOfWork.SaveChangesAsync(cancellationToken);
+                saveCompleted?.TrySetResult();
+            }
+            catch (Exception exception)
+            {
+                saveCompleted?.TrySetException(exception);
+                throw;
+            }
+        }
     }
 }

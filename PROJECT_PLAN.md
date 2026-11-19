@@ -395,6 +395,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** تست‌های وابسته به رفتار اختصاصی SQL Server با `Testcontainers.MsSql` و Image مشخص SQL Server 2022 اجرا می‌شوند. تست Rollback ابتدا Schema قدیمی را ایجاد و Expand Migration را واقعاً اعمال می‌کند؛ سپس با ایجاد خطای Unique Index در یک `SaveChangesAsync` تأیید می‌کند که تغییر Contact، Activity جدید و Outbox Message همگی Rollback می‌شوند.
 - **دلیل:** Providerهای In-Memory یا SQLite رفتار تراکنش، Filtered Index و خطاهای SQL Server را دقیق بازتولید نمی‌کنند. این تست فعلاً اتمیک‌بودن Persistence را اثبات می‌کند؛ ثبت خودکار Event توسط MassTransit Bus Outbox پس از فعال‌سازی آن در مرحله ۴.۲ جداگانه تست خواهد شد.
 
+### D-046 — تست قطعی Contact Concurrency
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** سناریوی هم‌زمانی با دو Scope و دو `CrmDbContext` واقعی اجرا می‌شود. هر دو Handler پیش از Save روی یک Barrier هم‌زمان می‌شوند؛ سپس ترتیب Save عمداً طوری کنترل می‌شود که Activity جدیدتر ابتدا Commit و درخواست قدیمی‌تر با مقدار Concurrency منقضی‌شده ذخیره شود. تست دو بار فراخوانی Unit of Work درخواست بازنده، موفقیت هر دو درخواست، ثبت هر دو Activity و باقی‌ماندن بزرگ‌ترین `LastActivityAt` را تأیید می‌کند.
+- **دلیل:** اجرای آزاد دو Task ممکن است بدون ایجاد Conflict هم سبز شود و یک تست Flaky یا مثبت کاذب بسازد. ترتیب قطعی ثابت می‌کند مسیر واقعی `DbUpdateConcurrencyException`، Reload و Retry لایه Application اجرا شده است.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -556,8 +562,9 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۲.۷ — تست Concurrency در SQL Server
 
-- **وضعیت:** شروع‌نشده
+- **وضعیت:** آماده‌بازبینی
 - تست درخواست همزمان و Monotonic بودن `LastActivityAt` با Testcontainers.
+- اجبار ترتیب Save برای اثبات اجرای Conflict و Retry، نه صرفاً نتیجه‌ای وابسته به زمان‌بندی Threadها.
 
 ### مرحله ۳ — HTTP API
 
@@ -760,5 +767,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۱ شامل تعریف و تست EF Model مربوط به Filtered Unique Index درخواست پیاده‌سازی شد؛ تصمیم D-043 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۲ شامل Migration افزایشی ستون Request Key، جداول MassTransit و Index درخواست پیاده‌سازی شد؛ تصمیم D-044 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۳ با تست Rollback اتمیک Contact، Activity و Outbox روی SQL Server واقعی پیاده‌سازی شد؛ تصمیم D-045 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | مرحله ۲.۷ با تست قطعی Contact Concurrency، Reload و Retry روی دو DbContext واقعی پیاده‌سازی شد؛ تصمیم D-046 ثبت شد. |
 
 </div>
