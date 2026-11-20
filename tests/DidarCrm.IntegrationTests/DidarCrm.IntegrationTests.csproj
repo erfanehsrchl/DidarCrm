@@ -27,4 +27,10 @@
     <ProjectReference Include="..\..\src\DidarCrm.Api\DidarCrm.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\scripts\backfill\*.sql"
+          Link="scripts\backfill\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

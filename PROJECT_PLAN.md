@@ -509,6 +509,18 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** شماره تلاش جاری از Retry Context خود MassTransit در Consumer خوانده می‌شود. شکست‌های قبل از آخرین Retry، Delivery را `Pending` نگه می‌دارند و شکست آخر آن را `Failed` می‌کند؛ سپس Exception همچنان پرتاب می‌شود تا MassTransit پیام را به Queue استاندارد `_error` منتقل کند. پردازش مجدد یک رویداد برای Delivery شکست‌خورده مجاز است و در صورت موفقیت همان رکورد را به `Succeeded` می‌رساند.
 - **دلیل:** وضعیت دیتابیس پس از پایان Retry نباید به‌اشتباه یک پردازش فعال را نشان دهد. نگه‌داشتن پیام اصلی و جزئیات Exception در Error Queue امکان عیب‌یابی و Redrive عملیاتی را حفظ می‌کند و قابل‌بازیابی‌بودن Entity نیز نیاز به ساخت رکورد جدید یا حذف تاریخچه تلاش‌ها را از بین می‌برد.
 
+### D-065 — نگاشت Flagهای قدیمی در Backfill
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `NotificationCreated = 1` با ایجاد یک رکورد تاریخی در `crmNotification` به وضعیت جدید منتقل می‌شود؛ مقدار صفر تا مرحله Checkpoint/Resume بدون رکورد باقی می‌ماند. برای Webhook، مقدار `WebhookSent = 1` به Delivery با وضعیت `Succeeded` و مقدار صفر به Delivery با وضعیت `Pending` نگاشت می‌شود. شناسه جدول‌های جدید با `NEWID()` ساخته و `CreatedAt` از Activity کپی می‌شود. برای داده تاریخی، `AttemptCount = 0` و `LastAttemptAt` و `LastError` برابر `NULL` هستند.
+- **دلیل:** Flag مثبت فقط وقوع نتیجه را ثابت می‌کند و زمان یا تعداد تلاش‌های قبلی را نشان نمی‌دهد؛ ساختن Telemetry حدسی اطلاعات نادرست تولید می‌کند. نبود رکورد Notification برای Flag منفی و وضعیت Pending برای Webhook منفی، موارد نیازمند پردازش را برای مرحله ۷.۴ قابل شناسایی نگه می‌دارند.
+
+### D-066 — اجرای Batch و تکرارپذیری Backfill
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** Backfill اعلان و Webhook در اسکریپت‌های مستقل، با Batch پیش‌فرض ۱۰۰۰ رکوردی، تراکنش جدا برای هر Batch و تأخیر قابل تنظیم اجرا می‌شوند. هر Insert با `NOT EXISTS` و Lock هدفمند روی Unique Index محافظت می‌شود و Unique Index مربوط به `ActivityId` تضمین نهایی عدم تکرار است.
+- **دلیل:** تراکنش‌های کوتاه فشار Lock و Log را برای چند میلیون رکورد محدود می‌کنند. اسکریپت‌ها بدون حذف یا بازنویسی نتیجه قبلی قابل اجرای مجدد هستند و با Writeهای همزمان مسیر جدید تداخل داده‌ای ایجاد نمی‌کنند.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -699,33 +711,33 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۴.۱ — Docker Compose زیرساخت محلی
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - افزودن SQL Server و RabbitMQ و مستند اجرای محلی.
 
 #### مرحله ۴.۲ — اتصال و توپولوژی RabbitMQ
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - افزودن Transport مربوط به MassTransit RabbitMQ، Exchange نوع Fanout و نام‌های ثابت Queueها.
 - فعال‌سازی Transactional Bus Outbox روی `CrmDbContext`، تکمیل Dependency مربوط به `IPublishEndpoint` و غیرفعال‌ماندن موقت Delivery Service تا مرحله ۴.۳.
 - ایجاد Receive Endpoint و Binding واقعی Queueها همراه Consumerهای مراحل ۵ و ۶ انجام می‌شود.
 
 #### مرحله ۴.۳ — تنظیم Outbox Delivery
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - تنظیم Query/Delivery Batch Size، Query Delay، Query Timeout و Delivery Timeout مربوط به Bus Outbox.
 - آماده‌سازی Flag فعال‌سازی Delivery و خاموش نگه‌داشتن آن تا ایجاد Queueهای پایدار Consumer.
 - استفاده از رفتار داخلی Retry و Concurrency نسخه 8.4 به‌جای تنظیم APIهای نسخه‌های جدیدتر.
 
 #### مرحله ۴.۴ — Consumer Outbox و Retry
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - تنظیم Consumer Outbox و Duplicate Detection Window برای تمام Receive Endpointهای آینده.
 - تنظیم Retry کوتاه مشترک و Configuration-driven.
 - به‌تعویق‌انداختن Redelivery بلندمدت تا پیاده‌سازی Consumer و شناخت Failure Mode واقعی آن.
 
 #### مرحله ۴.۵ — تست قطع Broker
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - اثبات ثبت Activity و پیام Outbox هنگام قطعی واقعی RabbitMQ.
 - اثبات تخلیه Outbox و انتشار پیام پس از بازیابی Broker.
 
@@ -733,25 +745,25 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۵.۱ — مدل و Schema اعلان
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - افزودن Entity و جدول مستقل `crmNotification` خارج از `crmActivity`.
 - ثبت داده اعلان موفق و Unique Index روی `ActivityId` به‌عنوان محافظ نهایی تکرار.
 
 #### مرحله ۵.۲ — Consumer مسیر موفق
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - مصرف `ActivityCreatedEvent` از Queue پایدار Notification.
 - نگاشت پیام به Application Handler و ایجاد اتمیک Notification با Consumer Outbox.
 
 #### مرحله ۵.۳ — Inbox و Deduplication
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - اتصال Consumer به Consumer Outbox و `InboxState` استاندارد MassTransit از طریق Callback سراسری مرحله ۴.۴.
 - اعمال `DuplicateDetectionWindow` مشترک بدون ثبت دوباره Middleware در Consumer Definition.
 
 #### مرحله ۵.۴ — تست Redelivery
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - انتشار دو Delivery با Envelope `MessageId` یکسان روی RabbitMQ واقعی.
 - اثبات ایجاد تنها یک Inbox و یک Notification پس از مصرف و Ack هر دو Delivery.
 
@@ -759,14 +771,14 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۶.۱ — مدل Delivery و HTTP Port
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - افزودن مدل `WebhookDelivery` با `WebhookDeliveryId` مستقل، `ActivityId` یکتا و وضعیت اولیه `Pending`.
 - افزودن رفتار موفقیت و قرارداد `IWebhookSender` همراه Payload مستقل.
 - نگاشت EF، Consumer و Adapter واقعی HTTP در این مرحله پیاده‌سازی نمی‌شوند.
 
 #### مرحله ۶.۲ — ارسال موفق Webhook
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - افزودن Schema و Repository مربوط به `crmWebhookDelivery`.
 - بررسی و ثبت `Pending` با EF در همان Consumer، پیش از Side Effect خارجی.
 - ارسال POST با `Idempotency-Key` مبتنی بر `ActivityId` و سپس ثبت وضعیت `Succeeded`.
@@ -775,14 +787,14 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۶.۳ — Retry و Backoff
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - ثبت ماندگار آخرین خطا، زمان آخرین تلاش و `AttemptCount`.
 - Retry مخصوص Webhook با Backoff افزایشی و Configuration-driven.
 - حفظ Retry ثابت مشترک برای سایر Consumerها.
 
 #### مرحله ۶.۴ — خطای دائمی و Dead Letter
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - تشخیص آخرین تلاش از Retry Context و ثبت وضعیت نهایی `Failed`.
 - انتقال پیام شکست‌خورده به Error Queue استاندارد MassTransit با پرتاب مجدد خطا.
 - امکان پردازش مجدد Delivery شکست‌خورده و تست تبدیل آن به `Succeeded`.
@@ -791,18 +803,23 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۷.۱ — طراحی Schema انتقال
 
-- **وضعیت:** شروع‌نشده
-- نهایی‌سازی نگاشت Flagهای قدیمی به وضعیت جدید.
+- **وضعیت:** آماده‌بازبینی
+- ثبت نگاشت صریح Flagهای قدیمی به جدول‌ها و وضعیت‌های جدید.
+- حفظ موارد ناقص برای پردازش کنترل‌شده مرحله ۷.۴ و پرهیز از ساخت Telemetry حدسی.
 
 #### مرحله ۷.۲ — Backfill اعلان
 
-- **وضعیت:** شروع‌نشده
-- اسکریپت Batch و قابل اجرای مجدد برای Notification.
+- **وضعیت:** آماده‌بازبینی
+- اسکریپت Batch و قابل اجرای مجدد برای انتقال اعلان‌های تکمیل‌شده تاریخی.
+- تراکنش مستقل هر Batch، تأخیر قابل تنظیم و محافظت نهایی با Unique Index.
+- تست روی SQL Server واقعی برای نگاشت Flag و اجرای مجدد.
 
 #### مرحله ۷.۳ — Backfill وب‌هوک
 
-- **وضعیت:** شروع‌نشده
-- اسکریپت Batch و قابل اجرای مجدد برای Webhook.
+- **وضعیت:** آماده‌بازبینی
+- اسکریپت Batch و قابل اجرای مجدد برای ساخت Deliveryهای `Succeeded` و `Pending`.
+- حفظ ناشناخته‌بودن Telemetry تاریخی با `AttemptCount = 0` و مقادیر آخرین تلاش برابر `NULL`.
+- تست روی SQL Server واقعی برای نگاشت هر دو مقدار Flag و اجرای مجدد.
 
 #### مرحله ۷.۴ — Checkpoint و Resume
 
@@ -919,5 +936,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | Webhook Endpoint از Consumer Outbox سراسری مستثنا شد تا Pending و آخرین خطای HTTP پیش از Retry ماندگار شوند؛ تصمیم D-062 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۶.۳ با AttemptCount ماندگار و Retry افزایشی مخصوص Webhook تکمیل شد؛ تصمیم D-063 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۶.۴ با وضعیت نهایی Failed، انتقال پیام به Error Queue و امکان بازیابی Delivery شکست‌خورده تکمیل شد؛ تصمیم D-064 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | وضعیت مراحل ۴.۱ تا ۶.۴ که بازبینی و مبنای مراحل بعدی قرار گرفته بودند، از «آماده‌بازبینی» به «پذیرفته‌شده» اصلاح شد. |
+| ۱۴۰۵/۰۸/۲۹ | مراحل ۷.۱ تا ۷.۳ شامل نگاشت Flagهای قدیمی، Backfill دسته‌ای اعلان و Webhook و تست اجرای مجدد روی SQL Server واقعی پیاده‌سازی شدند؛ تصمیم‌های D-065 و D-066 ثبت شدند. |
 
 </div>
