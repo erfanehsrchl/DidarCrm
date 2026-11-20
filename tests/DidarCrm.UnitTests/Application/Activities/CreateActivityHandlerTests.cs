@@ -74,7 +74,8 @@ public sealed class CreateActivityHandlerTests
         var result = await handler.HandleAsync(command);
 
         Assert.True(result.IsFailure);
-        Assert.Equal("Activity.Validation", result.Error.Code);
+        Assert.Equal("Request.Validation", result.Error.Code);
+        Assert.Equal("Tenant id cannot be empty.", result.Error.Message);
         Assert.Equal(ErrorType.Validation, result.Error.Type);
         Assert.Equal(0, unitOfWork.SaveChangesCount);
     }

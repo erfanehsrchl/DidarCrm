@@ -1,8 +1,10 @@
 using DidarCrm.Application.Abstractions.Messaging;
 using DidarCrm.Application.Abstractions.Persistence;
+using DidarCrm.Application.Abstractions.Time;
 using DidarCrm.Infrastructure.Messaging;
 using DidarCrm.Infrastructure.Persistence;
 using DidarCrm.Infrastructure.Persistence.Repositories;
+using DidarCrm.Infrastructure.Time;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -22,6 +24,7 @@ public static class DependencyInjection
         services.AddScoped<IActivityRepository, ActivityRepository>();
         services.AddScoped<IContactRepository, ContactRepository>();
         services.AddScoped<IIntegrationEventPublisher, MassTransitIntegrationEventPublisher>();
+        services.AddSingleton<IClock, SystemClock>();
 
         return services;
     }

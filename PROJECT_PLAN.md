@@ -169,7 +169,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 ### D-008 — قرارداد API ثبت Activity
 
-- **وضعیت:** پذیرفته‌شده
+- **وضعیت:** تکمیل‌شده توسط D-048
 - **تصمیم:** Endpoint برابر `POST /api/v1/activities` است. Tenant از `X-Tenant-Id`، کلید درخواست از `Idempotency-Key` و `contactId` و `title` از JSON Body خوانده می‌شوند. مقدار `CreatedAt` در سرور و به‌صورت UTC تولید می‌شود. تصمیم دقیق Status Code و Header پاسخ به مرحله API موکول می‌شود.
 - **دلیل:** Headerها اطلاعات Tenant و Idempotency را از Payload تجاری جدا می‌کنند. قرارداد Application نباید جزئیات پاسخ HTTP را در خود نگه دارد. Authentication خارج از محدوده است.
 
@@ -259,8 +259,8 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 ### D-023 — قرارداد CreateActivity در مرز Application
 
-- **وضعیت:** پذیرفته‌شده
-- **تصمیم:** `CreateActivityCommand` ورودی‌ها را با نوع‌های ساده `Guid` و `string` دریافت می‌کند و تبدیل آن‌ها به Value Object داخل Use Case انجام خواهد شد. `CreateActivityResponse` فقط شامل شناسه Activity و زمان ایجاد UTC است.
+- **وضعیت:** اصلاح‌شده توسط D-048
+- **تصمیم:** `CreateActivityCommand` ورودی‌ها را با نوع‌های ساده `Guid` و `string` دریافت می‌کند و تبدیل آن‌ها به Value Object داخل Use Case انجام خواهد شد. `CreateActivityResult` فقط شامل شناسه Activity و زمان ایجاد UTC است.
 - **دلیل:** قرارداد Application نباید مدل HTTP باشد، مصرف‌کننده را مجبور به ساخت Value Objectهای Domain کند یا جزئیات Replay و Status Code مربوط به لایه API را در خروجی تجاری قرار دهد.
 
 ### D-024 — Portهای Persistence و مرز تراکنش
@@ -400,6 +400,18 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **وضعیت:** پذیرفته‌شده
 - **تصمیم:** سناریوی هم‌زمانی با دو Scope و دو `CrmDbContext` واقعی اجرا می‌شود. هر دو Handler پیش از Save روی یک Barrier هم‌زمان می‌شوند؛ سپس ترتیب Save عمداً طوری کنترل می‌شود که Activity جدیدتر ابتدا Commit و درخواست قدیمی‌تر با مقدار Concurrency منقضی‌شده ذخیره شود. تست دو بار فراخوانی Unit of Work درخواست بازنده، موفقیت هر دو درخواست، ثبت هر دو Activity و باقی‌ماندن بزرگ‌ترین `LastActivityAt` را تأیید می‌کند.
 - **دلیل:** اجرای آزاد دو Task ممکن است بدون ایجاد Conflict هم سبز شود و یک تست Flaky یا مثبت کاذب بسازد. ترتیب قطعی ثابت می‌کند مسیر واقعی `DbUpdateConcurrencyException`، Reload و Retry لایه Application اجرا شده است.
+
+### D-047 — قرارداد HTTP و تشخیص Replay
+
+- **وضعیت:** منسوخ‌شده توسط D-048
+- **تصمیم:** `POST /api/v1/activities` برای ایجاد جدید پاسخ `201 Created` همراه Header استاندارد `Location` و برای Replay یک درخواست یکسان پاسخ `200 OK` می‌دهد. JSON پاسخ در هر دو حالت فقط `activityId` و `createdAtUtc` دارد. Application نتیجه را با `CreateActivityOutcome` شامل نوع `Created` یا `Replayed` به API اعلام می‌کند، اما این اطلاعات در DTO پاسخ HTTP نمایش داده نمی‌شود. خطاهای ورودی با `400 ValidationProblem` و خطاهای `NotFound` و `Conflict` با RFC 7807 و Statusهای `404` و `409` برگردانده می‌شوند. پیاده‌سازی `IClock` از `DateTimeOffset.UtcNow` استفاده می‌کند.
+- **دلیل:** Status Code باید ایجاد واقعی را از Replay جدا کند، بدون اینکه جزئیات Idempotency وارد Payload عمومی شود. Problem Details نیز قرارداد خطای یکنواخت و قابل توسعه ایجاد می‌کند. تست Host تا پیش از مرحله ۴.۲، Publisher را با Test Double جایگزین می‌کند؛ اتصال واقعی `IPublishEndpoint` و Bus Outbox همچنان در مرحله ۴.۲ انجام می‌شود.
+
+### D-048 — Controller، Validation خودکار و ApiResponse
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** API از Controller و Actionهای برگرداننده `IActionResult` استفاده می‌کند. مدل‌های ورودی Controller و Validatorهای آن‌ها در API و با پسوند `Request`، مدل‌های خروجی HTTP با پسوند `Response` و خروجی Use Case با پسوند `Result` نگهداری می‌شوند. ایجاد و Replay هر دو پاسخ یکسان `200 OK` در قالب `ApiResponse<CreateActivityResponse>` می‌دهند. `BaseController.HandleResult` تبدیل Result Pattern به `ApiResponse<T>` و Status Code مناسب را متمرکز می‌کند. Package FluentValidation و مکانیزم ثبت Assemblyهای Validator در Application قرار دارد و `AddApplication` خود Handler را نیز ثبت می‌کند. `AutoValidationFilter` سراسری Requestها را پیش از Action بررسی می‌کند؛ Handler دیگر `IValidator<CreateActivityCommand>` دریافت یا Validation را دستی اجرا نمی‌کند و Domain همچنان آخرین محافظ Invariantهاست. Headerها مستقیماً و بدون Attribute اختصاصی با `[FromHeader]` bind می‌شوند. تنظیم پاسخ خطای Model Binding در `AddPresentation` باقی می‌ماند تا خطاهای قبل از Action نیز برخلاف رفتار پیش‌فرض `[ApiController]` در قالب `ApiResponse<T>` باشند.
+- **دلیل:** این ساختار از الگوی واقعی `NamadeNo.Investment` شامل `AutoValidationFilter`، `BaseController.HandleResult`، `ApiResponse<T>` و `GlobalExceptionMiddleware` اقتباس شده و abstractionهای اختصاصی غیرضروری حذف شده‌اند. تنظیم اضافه Model State آگاهانه حفظ شده است، زیرا NamadeNo در خطاهای JSON و Model Binding قالب ثابت `ApiResponse<T>` را تضمین نمی‌کند. در DidarCrm نیز `IsSuccess` برخلاف پیاده‌سازی مرجع از وجود یا نبود `Data` حدس زده نمی‌شود؛ نتیجه صریح `Result` مبنا قرار می‌گیرد.
 
 ## ۶. مراحل پیاده‌سازی
 
@@ -570,18 +582,22 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۳.۱ — Endpoint و DTOها
 
-- **وضعیت:** شروع‌نشده
-- افزودن `POST /api/v1/activities` فقط برای Happy Path.
+- **وضعیت:** آماده‌بازبینی
+- افزودن `POST /api/v1/activities` با Controller و Action دارای خروجی `IActionResult`.
+- افزودن Request/Response مستقل HTTP، ثبت Handler و پیاده‌سازی Production مربوط به `IClock`.
 
 #### مرحله ۳.۲ — Validation و Problem Details
 
-- **وضعیت:** شروع‌نشده
-- افزودن Validation Header/Body و Error Mapping.
+- **وضعیت:** آماده‌بازبینی
+- اعتبارسنجی خودکار Body Request با FluentValidation و Headerها با Model Binding؛ بدون تزریق Validator در Handler.
+- نگاشت مشترک Resultهای Application به `ApiResponse<T>` توسط `BaseController.HandleResult`.
 
 #### مرحله ۳.۳ — پاسخ Replay و تست Endpoint
 
-- **وضعیت:** شروع‌نشده
-- افزودن `201`/`200` و Integration Testهای HTTP.
+- **وضعیت:** آماده‌بازبینی
+- پاسخ یکسان `200 OK` برای ایجاد و Replay بدون نمایش نوع نتیجه به Client.
+- افزودن `[ProducesResponseType]`، Swagger و Integration Testهای HTTP و OpenAPI.
+- تست Host واقعی با `WebApplicationFactory` و SQL Server موقت برای Success، Replay، Validation فارسی، Not Found و Conflict.
 
 ### مرحله ۴ — RabbitMQ و MassTransit
 
@@ -768,5 +784,8 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۲ شامل Migration افزایشی ستون Request Key، جداول MassTransit و Index درخواست پیاده‌سازی شد؛ تصمیم D-044 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۳ با تست Rollback اتمیک Contact، Activity و Outbox روی SQL Server واقعی پیاده‌سازی شد؛ تصمیم D-045 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۲.۷ با تست قطعی Contact Concurrency، Reload و Retry روی دو DbContext واقعی پیاده‌سازی شد؛ تصمیم D-046 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | مراحل ۳.۱ تا ۳.۳ شامل Endpoint ثبت Activity، Validation، Problem Details، پاسخ Created/Replay و تست‌های HTTP پیاده‌سازی شدند؛ تصمیم D-047 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | بنا بر بازبینی API، Outcome و Problem Details با Controller، Result خروجی Application، Validation خودکار، `HandleResult`، `ApiResponse<T>` و Swagger جایگزین شدند؛ تصمیم D-048 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | الگوی API با ماژول `NamadeNo.Investment` تطبیق داده شد؛ Request Validatorها در API باقی ماندند، ثبت Validation مربوط به Use Case به Application منتقل و abstractionهای اختصاصی Header و Error Factory حذف شدند. |
 
 </div>

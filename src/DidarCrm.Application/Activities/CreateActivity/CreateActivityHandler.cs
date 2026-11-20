@@ -32,7 +32,7 @@ public sealed class CreateActivityHandler
         _clock = clock;
     }
 
-    public async Task<Result<CreateActivityResponse>> HandleAsync(
+    public async Task<Result<CreateActivityResult>> HandleAsync(
         CreateActivityCommand command,
         CancellationToken cancellationToken = default)
     {
@@ -50,8 +50,8 @@ public sealed class CreateActivityHandler
         }
         catch (DomainValidationException exception)
         {
-            return Result<CreateActivityResponse>.Failure(
-                new Error("Activity.Validation", exception.Message, ErrorType.Validation));
+            return Result<CreateActivityResult>.Failure(
+                new Error("Request.Validation", exception.Message, ErrorType.Validation));
         }
 
         var existingActivity = await _activityRepository.GetByRequestKeyAsync(
@@ -72,7 +72,7 @@ public sealed class CreateActivityHandler
 
         if (contact is null)
         {
-            return Result<CreateActivityResponse>.Failure(
+            return Result<CreateActivityResult>.Failure(
                 new Error(
                     "Contact.NotFound",
                     "The contact was not found for the specified tenant.",
@@ -137,26 +137,28 @@ public sealed class CreateActivityHandler
             }
         }
 
-        return Result<CreateActivityResponse>.Success(
-            new CreateActivityResponse(activity.Id.Value, activity.CreatedAtUtc));
+        return Result<CreateActivityResult>.Success(
+            new CreateActivityResult(
+                activity.Id.Value,
+                activity.CreatedAtUtc));
     }
 
-    private static Result<CreateActivityResponse> CreateResultForExistingActivity(
+    private static Result<CreateActivityResult> CreateResultForExistingActivity(
         CustomerActivity existingActivity,
         ContactId contactId,
         ActivityTitle title)
     {
         if (existingActivity.ContactId != contactId || existingActivity.Title != title)
         {
-            return Result<CreateActivityResponse>.Failure(
+            return Result<CreateActivityResult>.Failure(
                 new Error(
                     "Activity.IdempotencyConflict",
                     "The idempotency key has already been used with a different payload.",
                     ErrorType.Conflict));
         }
 
-        return Result<CreateActivityResponse>.Success(
-            new CreateActivityResponse(
+        return Result<CreateActivityResult>.Success(
+            new CreateActivityResult(
                 existingActivity.Id.Value,
                 existingActivity.CreatedAtUtc));
     }
