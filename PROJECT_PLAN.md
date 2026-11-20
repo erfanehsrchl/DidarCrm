@@ -533,6 +533,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** Worker پس از Batch خالی متوقف نمی‌شود و تا زمان غیرفعال‌سازی با Polling ادامه می‌دهد. Batch پر با تأخیر کوتاه و Batch ناقص/خالی با Polling Interval اجرا می‌شود. فعال‌سازی Worker مستلزم فعال‌بودن Outbox Delivery است. Reconciliation فقط از طریق اسکریپت عملیاتی مستقل انجام می‌شود؛ متد برنامه‌ای تکراری `ReconcileAsync` حذف شده است.
 - **دلیل:** در دوره همزیستی، نسخه قدیمی ممکن است پس از عبور Backfill همچنان Activity بدون RequestKey بنویسد. Polling و Ledger آن Write را در دور بعد می‌گیرند؛ Queryهای Reconciliation نیز تفاوت «هنوز آزاد نشده» و «آزاد شده اما Consumer هنوز کامل نکرده» را قابل مشاهده می‌کنند.
 
+### D-069 — Liveness و Readiness
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** مسیر `/health/live` هیچ Dependency خارجی را بررسی نمی‌کند و فقط زنده‌بودن Process و HTTP Pipeline را نشان می‌دهد. مسیر `/health/ready` تمام Health Checkهای دارای Tag برابر `ready` را اجرا می‌کند؛ SQL Server با `CanConnectAsync` اختصاصی و Bus/Receive Endpointها با Health Check استاندارد MassTransit بررسی می‌شوند.
+- **دلیل:** قطعی SQL Server یا Broker نباید Process سالم را برای Restart اجباری ناسالم نشان دهد، اما Instance فاقد Dependency آماده نباید Traffic دریافت کند. استفاده از Health Check داخلی MassTransit وضعیت واقعی Bus را بدون اتصال دستی و تکراری به RabbitMQ گزارش می‌کند.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -853,8 +859,11 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۸.۱ — Health Check
 
-- **وضعیت:** شروع‌نشده
-- افزودن Liveness و Readiness.
+- **وضعیت:** آماده‌بازبینی
+- افزودن `/health/live` بدون بررسی Dependency خارجی.
+- افزودن `/health/ready` برای SQL Server و Health Check استاندارد MassTransit.
+- تست HTTP مسیر موفق هر دو Probe روی Host واقعی و SQL Server موقت.
+- تست قطعی دیتابیس برای اثبات `200` ماندن Liveness و پاسخ `503` از Readiness.
 
 #### مرحله ۸.۲ — Structured Logging
 
@@ -958,5 +967,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | مراحل ۷.۱ تا ۷.۳ شامل نگاشت Flagهای قدیمی، Backfill دسته‌ای اعلان و Webhook و تست اجرای مجدد روی SQL Server واقعی پیاده‌سازی شدند؛ تصمیم‌های D-065 و D-066 ثبت شدند. |
 | ۱۴۰۵/۰۸/۲۹ | مراحل ۷.۱ تا ۷.۳ پس از ادامه به Release ناقص پذیرفته شدند؛ مراحل ۷.۴ و ۷.۵ با Release Ledger اتمیک، Worker قابل Resume، پوشش Write همزمان و Reconciliation پیاده‌سازی و تصمیم‌های D-067 و D-068 ثبت شدند. |
 | ۱۴۰۵/۰۸/۲۹ | بنا بر بازبینی Clean Architecture، Orchestration مربوط به Release از Infrastructure به Handler لایه Application منتقل، EF پشت Repository هدفمند قرار گرفت و `ReconcileAsync` تکراری حذف شد. |
+| ۱۴۰۵/۰۸/۲۹ | مرحله ۸.۱ با Liveness مستقل و Readiness وابسته به SQL Server و Health Check استاندارد MassTransit پیاده‌سازی و تصمیم D-069 ثبت شد. |
 
 </div>

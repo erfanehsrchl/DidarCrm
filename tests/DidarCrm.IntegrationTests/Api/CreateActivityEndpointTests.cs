@@ -23,6 +23,22 @@ public sealed class CreateActivityEndpointTests(
     : IClassFixture<CreateActivityApiFixture>
 {
     [Fact]
+    public async Task Liveness_ReturnsOkWithoutCheckingDependencies()
+    {
+        using var response = await fixture.Client.GetAsync("/health/live");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Readiness_ReturnsOkWhenDatabaseAndBusAreReady()
+    {
+        using var response = await fixture.Client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
     public async Task Post_ReturnsSameOkResponseForIdempotentReplay()
     {
         var tenantId = Guid.NewGuid();
@@ -197,6 +213,38 @@ public sealed class CreateActivityEndpointTests(
         Assert.NotNull(envelope);
         Assert.False(envelope.IsSuccess);
         Assert.Equal(expectedCode, envelope.Code);
+    }
+}
+
+public sealed class HealthEndpointFailureTests
+{
+    [Fact]
+    public async Task UnavailableDatabase_AffectsReadinessButNotLiveness()
+    {
+        await using var factory = new UnavailableDatabaseWebApplicationFactory();
+        using var client = factory.CreateClient();
+
+        using var liveResponse = await client.GetAsync("/health/live");
+        using var readyResponse = await client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.OK, liveResponse.StatusCode);
+        Assert.Equal(
+            HttpStatusCode.ServiceUnavailable,
+            readyResponse.StatusCode);
+    }
+
+    private sealed class UnavailableDatabaseWebApplicationFactory
+        : WebApplicationFactory<Program>
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            builder.UseSetting("RabbitMq:Enabled", "false");
+            builder.UseSetting(
+                "ConnectionStrings:Database",
+                "Server=127.0.0.1,1;Database=unavailable;" +
+                "User Id=unused;Password=unused;Connect Timeout=1;" +
+                "TrustServerCertificate=True");
+        }
     }
 }
 

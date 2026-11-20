@@ -5,6 +5,7 @@ using DidarCrm.Application.Abstractions.Webhooks;
 using DidarCrm.Application.Activities.Events;
 using DidarCrm.Application.Backfill.ReleaseLegacyActivities;
 using DidarCrm.Infrastructure.Backfill;
+using DidarCrm.Infrastructure.Health;
 using DidarCrm.Infrastructure.Messaging;
 using DidarCrm.Infrastructure.Persistence;
 using DidarCrm.Infrastructure.Persistence.Repositories;
@@ -44,6 +45,10 @@ public static class DependencyInjection
 
         services.AddDbContext<CrmDbContext>(options =>
             options.UseSqlServer(connectionString));
+        services.AddHealthChecks()
+            .AddCheck<DatabaseReadinessHealthCheck>(
+                "database",
+                tags: ["ready"]);
         services.AddSingleton(
             new WebhookRetryPolicy(webhookRetryIntervals.Length));
 
