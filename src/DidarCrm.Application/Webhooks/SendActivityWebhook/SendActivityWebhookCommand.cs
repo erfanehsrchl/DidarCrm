@@ -5,4 +5,5 @@ public sealed record SendActivityWebhookCommand(
     Guid TenantId,
     Guid ContactId,
     string Title,
-    DateTimeOffset ActivityCreatedAtUtc);
+    DateTimeOffset ActivityCreatedAtUtc,
+    bool IsFinalAttempt = false);

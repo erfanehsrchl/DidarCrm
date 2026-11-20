@@ -113,14 +113,69 @@ public sealed class SendActivityWebhookHandlerTests
         Assert.Equal(2, unitOfWork.SaveChangesCount);
     }
 
+    [Fact]
+    public async Task Handle_marks_delivery_failed_when_final_attempt_fails()
+    {
+        var repository = new WebhookDeliveryRepositoryFake();
+        var sender = new WebhookSenderFake
+        {
+            ExceptionToThrow = new HttpRequestException(
+                "Destination unavailable")
+        };
+        var unitOfWork = new UnitOfWorkFake();
+        var handler = new SendActivityWebhookHandler(
+            sender,
+            repository,
+            unitOfWork,
+            new ClockFake(Now));
+
+        await Assert.ThrowsAsync<HttpRequestException>(
+            () => handler.HandleAsync(CreateCommand(isFinalAttempt: true)));
+
+        var delivery = Assert.Single(repository.AddedDeliveries);
+        Assert.Equal(WebhookDeliveryStatus.Failed, delivery.Status);
+        Assert.Equal("Destination unavailable", delivery.LastError);
+        Assert.Equal(1, delivery.AttemptCount);
+        Assert.Equal(2, unitOfWork.SaveChangesCount);
+    }
+
+    [Fact]
+    public async Task Handle_can_recover_a_failed_delivery()
+    {
+        var delivery = WebhookDelivery.Create(
+            ActivityId.From(Guid.NewGuid()),
+            Now);
+        delivery.MarkFailed("Destination unavailable", Now);
+        var repository = new WebhookDeliveryRepositoryFake
+        {
+            ExistingDelivery = delivery
+        };
+        var sender = new WebhookSenderFake();
+        var unitOfWork = new UnitOfWorkFake();
+        var handler = new SendActivityWebhookHandler(
+            sender,
+            repository,
+            unitOfWork,
+            new ClockFake(Now));
+
+        await handler.HandleAsync(CreateCommand(delivery.ActivityId.Value));
+
+        Assert.Equal(WebhookDeliveryStatus.Succeeded, delivery.Status);
+        Assert.Null(delivery.LastError);
+        Assert.Equal(2, delivery.AttemptCount);
+        Assert.Equal(1, unitOfWork.SaveChangesCount);
+    }
+
     private static SendActivityWebhookCommand CreateCommand(
-        Guid? activityId = null) =>
+        Guid? activityId = null,
+        bool isFinalAttempt = false) =>
         new(
             activityId ?? Guid.NewGuid(),
             Guid.NewGuid(),
             Guid.NewGuid(),
             "Follow up",
-            Now);
+            Now,
+            isFinalAttempt);
 
     private sealed class WebhookSenderFake : IWebhookSender
     {

@@ -199,7 +199,7 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task FailedWebhookPersistsPendingDeliveryAndLastError()
+    public async Task FailedWebhookPersistsFailedDeliveryAndMovesMessageToErrorQueue()
     {
         await using var factory = new BrokerRecoveryWebApplicationFactory(
             _sqlServer.GetConnectionString(),
@@ -223,7 +223,7 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
                 var delivery = await GetWebhookDeliveryAsync(activityId);
                 return delivery is
                     {
-                        Status: WebhookDeliveryStatus.Pending,
+                        Status: WebhookDeliveryStatus.Failed,
                         LastAttemptAtUtc: not null,
                         LastError: "Webhook endpoint unavailable."
                     } && delivery.AttemptCount == 4 &&

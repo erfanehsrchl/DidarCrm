@@ -57,4 +57,22 @@ public sealed class WebhookDeliveryTests
         Assert.Equal("Destination unavailable", delivery.LastError);
         Assert.Equal(1, delivery.AttemptCount);
     }
+
+    [Fact]
+    public void MarkFailed_marks_delivery_as_permanently_failed()
+    {
+        var delivery = WebhookDelivery.Create(
+            ActivityId.From(Guid.NewGuid()),
+            new DateTimeOffset(
+                2026, 11, 20, 10, 0, 0, TimeSpan.Zero));
+        var attemptedAtUtc = new DateTimeOffset(
+            2026, 11, 20, 10, 1, 0, TimeSpan.Zero);
+
+        delivery.MarkFailed("Destination unavailable", attemptedAtUtc);
+
+        Assert.Equal(WebhookDeliveryStatus.Failed, delivery.Status);
+        Assert.Equal(attemptedAtUtc, delivery.LastAttemptAtUtc);
+        Assert.Equal("Destination unavailable", delivery.LastError);
+        Assert.Equal(1, delivery.AttemptCount);
+    }
 }

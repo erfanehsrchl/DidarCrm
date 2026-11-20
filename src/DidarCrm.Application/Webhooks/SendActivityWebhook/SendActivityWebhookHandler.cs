@@ -59,7 +59,15 @@ public sealed class SendActivityWebhookHandler(
             when (exception is not OperationCanceledException ||
                   !cancellationToken.IsCancellationRequested)
         {
-            delivery.RecordFailure(exception.Message, clock.UtcNow);
+            if (command.IsFinalAttempt)
+            {
+                delivery.MarkFailed(exception.Message, clock.UtcNow);
+            }
+            else
+            {
+                delivery.RecordFailure(exception.Message, clock.UtcNow);
+            }
+
             await unitOfWork.SaveChangesAsync(cancellationToken);
             throw;
         }

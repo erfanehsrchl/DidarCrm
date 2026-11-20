@@ -42,6 +42,8 @@ public static class DependencyInjection
 
         services.AddDbContext<CrmDbContext>(options =>
             options.UseSqlServer(connectionString));
+        services.AddSingleton(
+            new WebhookRetryPolicy(webhookRetryIntervals.Length));
 
         services.AddMassTransit(configurator =>
         {

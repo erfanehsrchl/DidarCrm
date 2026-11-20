@@ -57,10 +57,31 @@ public sealed class WebhookDelivery
         string error,
         DateTimeOffset attemptedAtUtc)
     {
+        RecordFailedAttempt(
+            error,
+            attemptedAtUtc,
+            WebhookDeliveryStatus.Pending);
+    }
+
+    public void MarkFailed(
+        string error,
+        DateTimeOffset attemptedAtUtc)
+    {
+        RecordFailedAttempt(
+            error,
+            attemptedAtUtc,
+            WebhookDeliveryStatus.Failed);
+    }
+
+    private void RecordFailedAttempt(
+        string error,
+        DateTimeOffset attemptedAtUtc,
+        WebhookDeliveryStatus status)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(error);
 
         AttemptCount++;
-        Status = WebhookDeliveryStatus.Pending;
+        Status = status;
         LastAttemptAtUtc = attemptedAtUtc;
         LastError = error.Length <= MaxErrorLength
             ? error

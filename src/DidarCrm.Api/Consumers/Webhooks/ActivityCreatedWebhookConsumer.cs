@@ -1,11 +1,13 @@
 using DidarCrm.Application.Activities.Events;
 using DidarCrm.Application.Webhooks.SendActivityWebhook;
+using DidarCrm.Infrastructure.Messaging;
 using MassTransit;
 
 namespace DidarCrm.Api.Consumers.Webhooks;
 
 internal sealed class ActivityCreatedWebhookConsumer(
-    SendActivityWebhookHandler handler)
+    SendActivityWebhookHandler handler,
+    WebhookRetryPolicy retryPolicy)
     : IConsumer<ActivityCreatedEvent>
 {
     public Task Consume(ConsumeContext<ActivityCreatedEvent> context)
@@ -18,7 +20,8 @@ internal sealed class ActivityCreatedWebhookConsumer(
                 message.TenantId,
                 message.ContactId,
                 message.Title,
-                message.OccurredAtUtc),
+                message.OccurredAtUtc,
+                context.GetRetryAttempt() >= retryPolicy.RetryCount),
             context.CancellationToken);
     }
 }
