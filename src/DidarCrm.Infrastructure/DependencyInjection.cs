@@ -18,9 +18,11 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         string connectionString,
-        RabbitMqOptions? rabbitMqOptions = null)
+        RabbitMqOptions? rabbitMqOptions = null,
+        OutboxDeliveryOptions? outboxDeliveryOptions = null)
     {
         rabbitMqOptions ??= new RabbitMqOptions();
+        outboxDeliveryOptions ??= new OutboxDeliveryOptions();
 
         services.AddDbContext<CrmDbContext>(options =>
             options.UseSqlServer(connectionString));
@@ -30,8 +32,23 @@ public static class DependencyInjection
             configurator.AddEntityFrameworkOutbox<CrmDbContext>(outbox =>
             {
                 outbox.UseSqlServer();
+                outbox.QueryMessageLimit =
+                    outboxDeliveryOptions.QueryMessageLimit;
+                outbox.QueryDelay = outboxDeliveryOptions.QueryDelay;
+                outbox.QueryTimeout = outboxDeliveryOptions.QueryTimeout;
+
                 outbox.UseBusOutbox(busOutbox =>
-                    busOutbox.DisableDeliveryService());
+                {
+                    busOutbox.MessageDeliveryLimit =
+                        outboxDeliveryOptions.MessageDeliveryLimit;
+                    busOutbox.MessageDeliveryTimeout =
+                        outboxDeliveryOptions.MessageDeliveryTimeout;
+
+                    if (!outboxDeliveryOptions.Enabled)
+                    {
+                        busOutbox.DisableDeliveryService();
+                    }
+                });
             });
 
             if (!rabbitMqOptions.Enabled)

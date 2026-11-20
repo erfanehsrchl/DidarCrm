@@ -422,8 +422,14 @@ DidarCrm.Infrastructure/Persistence/Migrations
 ### D-050 — فعال‌سازی مرحله‌ای Bus Outbox
 
 - **وضعیت:** پذیرفته‌شده
-- **تصمیم:** MassTransit RabbitMQ و Transactional Bus Outbox روی `CrmDbContext` فعال می‌شوند. `ActivityCreatedEvent` روی Exchange پایدار `didar-crm.activity-created` از نوع Fanout منتشر خواهد شد و نام Queueهای Notification و Webhook از اکنون ثابت است. Delivery Service در مرحله ۴.۲ غیرفعال می‌ماند و در مرحله ۴.۳ پس از تنظیم Delivery فعال می‌شود؛ Queue و Binding هر Consumer نیز هم‌زمان با پیاده‌سازی همان Consumer ساخته می‌شود.
+- **تصمیم:** MassTransit RabbitMQ و Transactional Bus Outbox روی `CrmDbContext` فعال می‌شوند. `ActivityCreatedEvent` روی Exchange پایدار `didar-crm.activity-created` از نوع Fanout منتشر خواهد شد و نام Queueهای Notification و Webhook از اکنون ثابت است. Delivery Service تا زمان ایجاد Queue و Binding واقعی Consumerها غیرفعال می‌ماند؛ هر Queue نیز هم‌زمان با پیاده‌سازی همان Consumer ساخته می‌شود.
 - **دلیل:** ساخت Receive Endpoint بدون Consumer می‌تواند پیام را بدون اثر تجاری مصرف کند و تحویل Event به Exchange پیش از ایجاد Queue پایدار نیز پیام را از دست می‌دهد. تا آماده‌شدن Consumerها، پیام‌ها باید در Outbox SQL باقی بمانند.
+
+### D-051 — تنظیم Outbox Delivery در MassTransit 8.4
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** تنظیمات Delivery شامل `QueryMessageLimit`، `MessageDeliveryLimit`، `QueryDelay`، `QueryTimeout` و `MessageDeliveryTimeout` از Configuration خوانده می‌شوند. Flag فعال‌سازی نیز Configuration-driven است و تا ایجاد Queueهای Consumer خاموش باقی می‌ماند. Retry و Concurrency اختصاصی Delivery اضافه نمی‌شوند، زیرا API مستقیم آن‌ها در MassTransit 8.4 وجود ندارد و رفتار داخلی کتابخانه استفاده می‌شود.
+- **دلیل:** استفاده از گزینه‌های نسخه‌های جدیدتر در نسخه 8.4 قابل اتکا نیست. همچنین فعال‌کردن Delivery پیش از وجود Queue پایدار می‌تواند پیام تحویل‌شده به Exchange را از دسترس Consumerهای آینده خارج کند.
 
 ## ۶. مراحل پیاده‌سازی
 
@@ -627,8 +633,10 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۴.۳ — تنظیم Outbox Delivery
 
-- **وضعیت:** شروع‌نشده
-- تنظیم Batch Size، Delivery Timeout، Retry و Concurrency مربوط به Bus Outbox.
+- **وضعیت:** آماده‌بازبینی
+- تنظیم Query/Delivery Batch Size، Query Delay، Query Timeout و Delivery Timeout مربوط به Bus Outbox.
+- آماده‌سازی Flag فعال‌سازی Delivery و خاموش نگه‌داشتن آن تا ایجاد Queueهای پایدار Consumer.
+- استفاده از رفتار داخلی Retry و Concurrency نسخه 8.4 به‌جای تنظیم APIهای نسخه‌های جدیدتر.
 
 #### مرحله ۴.۴ — Consumer Outbox و Retry
 
@@ -803,5 +811,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | وضعیت مراحل بازبینی‌شده ۲.۵.۲ تا ۳.۳ به «پذیرفته‌شده» تغییر کرد. |
 | ۱۴۰۵/۰۸/۲۹ | مراحل ۴.۱ و ۴.۲ شامل Docker Compose، Baseline محلی جداول قدیمی، اتصال RabbitMQ، Topic Exchange و Bus Outbox بدون Delivery Service پیاده‌سازی شدند؛ تصمیم‌های D-049 و D-050 ثبت شدند. |
 | ۱۴۰۵/۰۸/۲۹ | نوع Exchange مربوط به `ActivityCreatedEvent` به‌دلیل نیاز همه Consumerها به تمام پیام‌ها و نبود Routing Key از Topic به Fanout تغییر کرد؛ تصمیم‌های D-012 و D-050 اصلاح شدند. |
+| ۱۴۰۵/۰۸/۲۹ | مرحله ۴.۳ شامل تنظیم Configuration-driven مربوط به Query و Delivery در Bus Outbox پیاده‌سازی شد؛ فعال‌سازی Delivery تا ایجاد Queueهای Consumer به تعویق افتاد و تصمیم D-051 ثبت شد. |
 
 </div>

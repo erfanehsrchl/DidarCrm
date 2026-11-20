@@ -8,7 +8,7 @@
 
 ## وضعیت فعلی
 
-Endpoint ثبت Activity، SQL Persistence، Transactional Bus Outbox و اتصال RabbitMQ پیاده‌سازی شده‌اند. Outbox Delivery تا مرحله ۴.۳ عمداً غیرفعال است تا پیش از ایجاد Queueهای Consumer پیامی به Exchange بدون Subscriber تحویل داده نشود.
+Endpoint ثبت Activity، SQL Persistence، Transactional Bus Outbox و اتصال RabbitMQ پیاده‌سازی شده‌اند. تنظیمات Outbox Delivery آماده است، اما Flag اجرای آن تا ایجاد Queueهای پایدار Consumer عمداً غیرفعال می‌ماند تا پیامی به Exchange بدون Subscriber تحویل داده نشود.
 
 ## اجرای زیرساخت محلی
 
