@@ -1,5 +1,6 @@
 using DidarCrm.Domain.Activities;
 using DidarCrm.Domain.Contacts;
+using DidarCrm.Domain.Notifications;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,6 +12,9 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options)
     public DbSet<CustomerActivity> Activities => Set<CustomerActivity>();
 
     public DbSet<Contact> Contacts => Set<Contact>();
+
+    public DbSet<ActivityNotification> Notifications =>
+        Set<ActivityNotification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

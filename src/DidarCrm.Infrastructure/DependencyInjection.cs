@@ -20,7 +20,8 @@ public static class DependencyInjection
         string connectionString,
         RabbitMqOptions? rabbitMqOptions = null,
         OutboxDeliveryOptions? outboxDeliveryOptions = null,
-        ConsumerProcessingOptions? consumerProcessingOptions = null)
+        ConsumerProcessingOptions? consumerProcessingOptions = null,
+        Action<IRegistrationConfigurator>? configureConsumers = null)
     {
         rabbitMqOptions ??= new RabbitMqOptions();
         outboxDeliveryOptions ??= new OutboxDeliveryOptions();
@@ -31,6 +32,8 @@ public static class DependencyInjection
 
         services.AddMassTransit(configurator =>
         {
+            configureConsumers?.Invoke(configurator);
+
             configurator.AddEntityFrameworkOutbox<CrmDbContext>(outbox =>
             {
                 outbox.UseSqlServer();
@@ -98,6 +101,9 @@ public static class DependencyInjection
 
         services.AddScoped<IActivityRepository, ActivityRepository>();
         services.AddScoped<IContactRepository, ContactRepository>();
+        services.AddScoped<
+            IActivityNotificationRepository,
+            ActivityNotificationRepository>();
         services.AddScoped<IIntegrationEventPublisher, MassTransitIntegrationEventPublisher>();
         services.AddSingleton<IClock, SystemClock>();
 

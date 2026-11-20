@@ -322,10 +322,9 @@ public sealed class CreateActivityHandlerTests
             return Task.FromResult(activity);
         }
 
-        public Task AddAsync(CustomerActivity activity, CancellationToken cancellationToken)
+        public void Add(CustomerActivity activity)
         {
             AddedActivities.Add(activity);
-            return Task.CompletedTask;
         }
     }
 

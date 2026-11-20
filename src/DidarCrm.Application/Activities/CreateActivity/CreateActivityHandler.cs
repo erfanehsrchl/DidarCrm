@@ -88,7 +88,7 @@ public sealed class CreateActivityHandler
             title,
             createdAtUtc);
 
-        await _activityRepository.AddAsync(activity, cancellationToken);
+        _activityRepository.Add(activity);
 
         await _eventPublisher.PublishAsync(
             new ActivityCreatedEvent(

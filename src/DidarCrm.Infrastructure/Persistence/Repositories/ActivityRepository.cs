@@ -21,10 +21,8 @@ internal sealed class ActivityRepository(CrmDbContext dbContext)
                 cancellationToken);
     }
 
-    public async Task AddAsync(
-        CustomerActivity activity,
-        CancellationToken cancellationToken)
+    public void Add(CustomerActivity activity)
     {
-        await dbContext.Activities.AddAsync(activity, cancellationToken);
+        dbContext.Activities.Add(activity);
     }
 }

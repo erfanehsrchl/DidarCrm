@@ -1,5 +1,6 @@
 using DidarCrm.Domain.Activities;
 using DidarCrm.Domain.Contacts;
+using DidarCrm.Domain.Notifications;
 using DidarCrm.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -50,6 +51,23 @@ public sealed class CrmDbContextModelTests
         Assert.NotNull(contact.FindProperty("TenantId"));
         Assert.True(contact.FindProperty("LastActivityAt")?.IsConcurrencyToken);
 
+        var notification = dbContext.Model.FindEntityType(
+            typeof(ActivityNotification));
+
+        Assert.NotNull(notification);
+        Assert.Equal("crmNotification", notification.GetTableName());
+        Assert.Equal(3, notification.GetProperties().Count());
+
+        var activityIdIndex = Assert.Single(
+            notification.GetIndexes(),
+            index => index.GetDatabaseName() ==
+                "UX_crmNotification_ActivityId");
+
+        Assert.True(activityIdIndex.IsUnique);
+        Assert.Equal(
+            nameof(ActivityNotification.ActivityId),
+            Assert.Single(activityIdIndex.Properties).Name);
+
         var tableNames = dbContext.Model
             .GetEntityTypes()
             .Select(entity => entity.GetTableName())
@@ -58,5 +76,6 @@ public sealed class CrmDbContextModelTests
         Assert.Contains("InboxState", tableNames);
         Assert.Contains("OutboxMessage", tableNames);
         Assert.Contains("OutboxState", tableNames);
+        Assert.Contains("crmNotification", tableNames);
     }
 }

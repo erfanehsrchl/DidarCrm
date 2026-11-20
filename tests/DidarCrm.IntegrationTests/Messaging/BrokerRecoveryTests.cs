@@ -4,6 +4,7 @@ using DidarCrm.Api.Contracts;
 using DidarCrm.Api.Contracts.Activities;
 using DidarCrm.Domain.Activities;
 using DidarCrm.Domain.Contacts;
+using DidarCrm.Domain.Notifications;
 using DidarCrm.Infrastructure.Persistence;
 using MassTransit;
 using MassTransit.EntityFrameworkCoreIntegration;
@@ -84,11 +85,15 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
 
         await _rabbitMq.UnpauseAsync();
 
-        var delivered = await WaitUntilAsync(
-            async () => !await HasOutboxMessageAsync(activity.ActivityId),
+        var deliveredAndConsumed = await WaitUntilAsync(
+            async () =>
+                !await HasOutboxMessageAsync(activity.ActivityId) &&
+                await HasNotificationAsync(activity.ActivityId),
             TimeSpan.FromSeconds(60));
 
-        Assert.True(delivered, "The outbox message was not delivered after RabbitMQ recovered.");
+        Assert.True(
+            deliveredAndConsumed,
+            "The event was not delivered and consumed after RabbitMQ recovered.");
     }
 
     private async Task SeedContactAsync(Guid tenantId, Guid contactId)
@@ -106,6 +111,15 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
         await using var dbContext = CreateDbContext();
         return await dbContext.Set<OutboxMessage>().AnyAsync(message =>
             message.Body.Contains(activityId.ToString()));
+    }
+
+    private async Task<bool> HasNotificationAsync(Guid activityId)
+    {
+        await using var dbContext = CreateDbContext();
+        var id = ActivityId.From(activityId);
+
+        return await dbContext.Set<ActivityNotification>().AnyAsync(
+            notification => notification.ActivityId == id);
     }
 
     private CrmDbContext CreateDbContext()

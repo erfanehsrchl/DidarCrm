@@ -83,6 +83,27 @@ namespace DidarCrm.Infrastructure.Persistence.Migrations
                     b.ToTable("cntContact", (string)null);
                 });
 
+            modelBuilder.Entity("DidarCrm.Domain.Notifications.ActivityNotification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("ActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("CreatedAt");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActivityId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_crmNotification_ActivityId");
+
+                    b.ToTable("crmNotification", (string)null);
+                });
+
             modelBuilder.Entity("MassTransit.EntityFrameworkCoreIntegration.InboxState", b =>
                 {
                     b.Property<long>("Id")

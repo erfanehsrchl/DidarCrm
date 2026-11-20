@@ -443,6 +443,18 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** رفتار قطعی RabbitMQ با Integration Test واقعی روی SQL Server و RabbitMQ Testcontainer بررسی می‌شود. تست پس از برقراری اولیه Bus، Container RabbitMQ را Pause می‌کند، درخواست Activity را ثبت و ماندگاری پیام در Outbox را تأیید می‌کند؛ سپس Broker را Unpause کرده و تخلیه رکورد Outbox پس از Publisher Confirm را انتظار می‌کشد.
 - **دلیل:** Mock یا In-memory Transport نمی‌تواند جدایی Commit دیتابیس از دسترس‌پذیری Broker و بازیابی Connection واقعی را اثبات کند. Pause/Unpause نسبت به Stop/Start کامل Container سریع‌تر و deterministic‌تر است و همان قطع دسترسی شبکه به Broker را شبیه‌سازی می‌کند.
 
+### D-054 — مدل ماندگار Notification
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** اعلان ساخته‌شده در Entity دامنه `ActivityNotification` و جدول مستقل `crmNotification` ذخیره می‌شود. رکورد فقط شامل شناسه Notification، شناسه یکتای Activity و زمان ایجاد Notification است. وجود رکورد Notification وضعیت Completed را نشان می‌دهد و Unique Index روی `ActivityId` محافظ نهایی در برابر ایجاد تکراری است؛ Pending در Outbox/Queue و Failure در Error Queue نمایش داده می‌شود، بنابراین ستون Status تکراری به جدول اضافه نمی‌شود.
+- **دلیل:** `ActivityId` به‌تنهایی Activity را به‌صورت یکتا مشخص می‌کند و برای ارتباط و idempotency کافی است. کپی Tenant، Contact، عنوان و زمان Activity در نیاز فعلی مصرفی ندارد و Snapshot غیرضروری ایجاد می‌کند. خود رکورد Notification مدرک اثر تجاری موفق است و Unique Constraint تضمین را در مرز دیتابیس نگه می‌دارد.
+
+### D-055 — محل Consumerهای Messaging
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** Consumerهای MassTransit به‌عنوان ورودی سیستم در پروژه API و کنار Controllerها قرار می‌گیرند. Consumer فقط پیام Transport را به Command لایه Application نگاشت می‌کند. تنظیم Broker، Outbox و Persistence در Infrastructure باقی می‌ماند و API ثبت Consumerها را از طریق callback به Registration زیرساخت اعلام می‌کند.
+- **دلیل:** Consumer مانند Controller یک Inbound Adapter است. قرار دادن آن در API جهت وابستگی Clean Architecture را حفظ می‌کند و Infrastructure را از شناخت Host و Consumerهای Presentation بی‌نیاز نگه می‌دارد.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -667,13 +679,15 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۵.۱ — مدل و Schema اعلان
 
-- **وضعیت:** شروع‌نشده
-- افزودن وضعیت پردازش اعلان خارج از `crmActivity`.
+- **وضعیت:** آماده‌بازبینی
+- افزودن Entity و جدول مستقل `crmNotification` خارج از `crmActivity`.
+- ثبت داده اعلان موفق و Unique Index روی `ActivityId` به‌عنوان محافظ نهایی تکرار.
 
 #### مرحله ۵.۲ — Consumer مسیر موفق
 
-- **وضعیت:** شروع‌نشده
-- مصرف Event و ایجاد یک Notification.
+- **وضعیت:** آماده‌بازبینی
+- مصرف `ActivityCreatedEvent` از Queue پایدار Notification.
+- نگاشت پیام به Application Handler و ایجاد اتمیک Notification با Consumer Outbox.
 
 #### مرحله ۵.۳ — Inbox و Deduplication
 
@@ -829,5 +843,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۴.۳ شامل تنظیم Configuration-driven مربوط به Query و Delivery در Bus Outbox پیاده‌سازی شد؛ فعال‌سازی Delivery تا ایجاد Queueهای Consumer به تعویق افتاد و تصمیم D-051 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۴.۴ شامل Consumer Outbox، بازه Duplicate Detection و Retry کوتاه مشترک برای Endpointهای آینده پیاده‌سازی شد؛ تصمیم D-052 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۴.۵ با Integration Test واقعی SQL Server و RabbitMQ برای ثبت هنگام قطعی و انتشار پس از بازیابی Broker پیاده‌سازی شد؛ تصمیم D-053 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | مراحل ۵.۱ و ۵.۲ شامل Entity و Schema مستقل Notification، Repository و Handler، Consumer ورودی در API و تست end-to-end روی RabbitMQ پیاده‌سازی شدند؛ تصمیم‌های D-054 و D-055 ثبت شدند. |
 
 </div>

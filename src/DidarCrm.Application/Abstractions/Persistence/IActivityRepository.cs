@@ -9,5 +9,5 @@ public interface IActivityRepository
         RequestKey requestKey,
         CancellationToken cancellationToken);
 
-    Task AddAsync(CustomerActivity activity, CancellationToken cancellationToken);
+    void Add(CustomerActivity activity);
 }
