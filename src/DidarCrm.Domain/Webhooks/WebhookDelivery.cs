@@ -30,6 +30,8 @@ public sealed class WebhookDelivery
 
     public string? LastError { get; private set; }
 
+    public int AttemptCount { get; private set; }
+
     public static WebhookDelivery Create(
         ActivityId activityId,
         DateTimeOffset createdAtUtc)
@@ -45,6 +47,7 @@ public sealed class WebhookDelivery
 
     public void MarkSucceeded(DateTimeOffset attemptedAtUtc)
     {
+        AttemptCount++;
         Status = WebhookDeliveryStatus.Succeeded;
         LastAttemptAtUtc = attemptedAtUtc;
         LastError = null;
@@ -56,6 +59,7 @@ public sealed class WebhookDelivery
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(error);
 
+        AttemptCount++;
         Status = WebhookDeliveryStatus.Pending;
         LastAttemptAtUtc = attemptedAtUtc;
         LastError = error.Length <= MaxErrorLength

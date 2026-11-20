@@ -18,6 +18,7 @@ public sealed class WebhookDeliveryTests
         Assert.Equal(activityId, delivery.ActivityId);
         Assert.Equal(WebhookDeliveryStatus.Pending, delivery.Status);
         Assert.Equal(createdAtUtc, delivery.CreatedAtUtc);
+        Assert.Equal(0, delivery.AttemptCount);
     }
 
     [Fact]
@@ -36,6 +37,7 @@ public sealed class WebhookDeliveryTests
         Assert.Equal(WebhookDeliveryStatus.Succeeded, delivery.Status);
         Assert.Equal(attemptedAtUtc, delivery.LastAttemptAtUtc);
         Assert.Null(delivery.LastError);
+        Assert.Equal(1, delivery.AttemptCount);
     }
 
     [Fact]
@@ -53,5 +55,6 @@ public sealed class WebhookDeliveryTests
         Assert.Equal(WebhookDeliveryStatus.Pending, delivery.Status);
         Assert.Equal(attemptedAtUtc, delivery.LastAttemptAtUtc);
         Assert.Equal("Destination unavailable", delivery.LastError);
+        Assert.Equal(1, delivery.AttemptCount);
     }
 }

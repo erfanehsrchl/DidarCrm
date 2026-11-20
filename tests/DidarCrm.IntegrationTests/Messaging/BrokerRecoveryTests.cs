@@ -226,16 +226,25 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
                         Status: WebhookDeliveryStatus.Pending,
                         LastAttemptAtUtc: not null,
                         LastError: "Webhook endpoint unavailable."
-                    } &&
+                    } && delivery.AttemptCount == 4 &&
                     await GetQueueMessageCountAsync(
                         managementClient,
                         $"{MessagingTopology.WebhookQueue}_error") == 1;
             },
             TimeSpan.FromSeconds(60));
 
+        var persistedDelivery = await GetWebhookDeliveryAsync(activityId);
+        var errorQueueMessages = await GetQueueMessageCountAsync(
+            managementClient,
+            $"{MessagingTopology.WebhookQueue}_error");
+
         Assert.True(
             failureWasPersisted,
-            "The failed webhook attempt was not persisted before the message reached the error queue.");
+            "The failed webhook attempt was not persisted before the message reached the error queue. " +
+            $"Status: {persistedDelivery?.Status}; " +
+            $"AttemptCount: {persistedDelivery?.AttemptCount}; " +
+            $"LastError: {persistedDelivery?.LastError}; " +
+            $"Error queue messages: {errorQueueMessages?.ToString() ?? "unavailable"}.");
     }
 
     private static ActivityCreatedEvent CreateActivityCreatedEvent(
@@ -434,6 +443,15 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
             builder.UseSetting("RabbitMq:Password", RabbitPassword);
             builder.UseSetting("OutboxDelivery:Enabled", "true");
             builder.UseSetting("OutboxDelivery:QueryDelay", "00:00:00.200");
+            builder.UseSetting(
+                "ConsumerProcessing:WebhookRetryIntervals:0",
+                "00:00:00.050");
+            builder.UseSetting(
+                "ConsumerProcessing:WebhookRetryIntervals:1",
+                "00:00:00.100");
+            builder.UseSetting(
+                "ConsumerProcessing:WebhookRetryIntervals:2",
+                "00:00:00.150");
 
             builder.ConfigureServices(services =>
             {

@@ -30,6 +30,15 @@ public static class DependencyInjection
         outboxDeliveryOptions ??= new OutboxDeliveryOptions();
         consumerProcessingOptions ??= new ConsumerProcessingOptions();
         webhookOptions ??= new WebhookOptions();
+        var webhookRetryIntervals =
+            consumerProcessingOptions.WebhookRetryIntervals.Length > 0
+                ? consumerProcessingOptions.WebhookRetryIntervals
+                :
+                [
+                    TimeSpan.FromSeconds(1),
+                    TimeSpan.FromSeconds(5),
+                    TimeSpan.FromSeconds(15)
+                ];
 
         services.AddDbContext<CrmDbContext>(options =>
             options.UseSqlServer(connectionString));
@@ -65,18 +74,22 @@ public static class DependencyInjection
             configurator.AddConfigureEndpointsCallback(
                 (context, endpointName, endpoint) =>
                 {
-                    endpoint.UseMessageRetry(retry =>
-                        retry.Interval(
-                            consumerProcessingOptions.RetryCount,
-                            consumerProcessingOptions.RetryInterval));
-
-                    if (!string.Equals(
+                    if (string.Equals(
                             endpointName,
                             MessagingTopology.WebhookQueue,
                             StringComparison.Ordinal))
                     {
-                        endpoint.UseEntityFrameworkOutbox<CrmDbContext>(context);
+                        endpoint.UseMessageRetry(retry =>
+                            retry.Intervals(
+                                webhookRetryIntervals));
+                        return;
                     }
+
+                    endpoint.UseMessageRetry(retry =>
+                        retry.Interval(
+                            consumerProcessingOptions.RetryCount,
+                            consumerProcessingOptions.RetryInterval));
+                    endpoint.UseEntityFrameworkOutbox<CrmDbContext>(context);
                 });
 
             if (!rabbitMqOptions.Enabled)

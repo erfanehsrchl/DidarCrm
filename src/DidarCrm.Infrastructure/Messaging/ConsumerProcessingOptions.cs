@@ -11,4 +11,6 @@ public sealed class ConsumerProcessingOptions
 
     public TimeSpan RetryInterval { get; init; } =
         TimeSpan.FromSeconds(1);
+
+    public TimeSpan[] WebhookRetryIntervals { get; init; } = [];
 }

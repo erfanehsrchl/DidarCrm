@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace DidarCrm.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CrmDbContext))]
-    [Migration("20261120123700_AddWebhookDelivery")]
+    [Migration("20261120130118_AddWebhookDelivery")]
     partial class AddWebhookDelivery
     {
         /// <inheritdoc />
@@ -114,6 +114,9 @@ namespace DidarCrm.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("ActivityId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("int");
 
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("datetimeoffset")

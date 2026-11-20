@@ -96,6 +96,9 @@ public sealed class CrmDbContextModelTests
         Assert.True(
             webhookDelivery.FindProperty(
                 nameof(WebhookDelivery.LastAttemptAtUtc))?.IsNullable);
+        Assert.False(
+            webhookDelivery.FindProperty(
+                nameof(WebhookDelivery.AttemptCount))?.IsNullable);
 
         var tableNames = dbContext.Model
             .GetEntityTypes()

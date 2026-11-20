@@ -497,6 +497,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** Webhook Endpoint از `UseEntityFrameworkOutbox<CrmDbContext>` سراسری مستثنا می‌شود؛ Notification و سایر Endpointها همچنان Consumer Outbox دارند. در Webhook Consumer، اولین `SaveChangesAsync` رکورد `Pending` را پیش از HTTP Commit می‌کند. در شکست HTTP، `LastError` و `LastAttemptAtUtc` ذخیره و Exception دوباره پرتاب می‌شود تا Retry کوتاه MassTransit اجرا شود. در موفقیت، Status به `Succeeded` تغییر، زمان آخرین تلاش ثبت و خطای قبلی پاک می‌شود.
 - **دلیل:** با Consumer Outbox، تراکنش Middleware تا پایان Consumer باز می‌ماند و شکست HTTP ثبت Pending و خطا را Rollback می‌کند. این Endpoint خروجی Messaging ندارد و Idempotency آن با `ActivityId`، Unique Index و وضعیت Delivery تأمین می‌شود؛ بنابراین خارج‌کردن هدفمند آن از Consumer Outbox امکان مشاهده و بازیابی Pending و خطای آخر را بدون حذف Outbox از سایر Consumerها فراهم می‌کند.
 
+### D-063 — Retry افزایشی Webhook و شمارنده تلاش
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** Webhook Endpoint به‌جای Retry ثابت مشترک، از آرایه Configuration-driven با فاصله‌های افزایشی `۱، ۵ و ۱۵ ثانیه` استفاده می‌کند. هر پاسخ موفق یا ناموفق HTTP مقدار `AttemptCount` را یک واحد افزایش می‌دهد و همراه `LastAttemptAtUtc` ذخیره می‌شود. Retry سایر Consumerها بدون تغییر باقی می‌ماند.
+- **دلیل:** فاصله افزایشی فشار روی مقصد موقتاً ناسالم را کاهش می‌دهد و شمارنده ماندگار امکان عیب‌یابی را فراهم می‌کند. در این مرحله از Retry درون‌حافظه‌ای کوتاه MassTransit استفاده می‌شود؛ Redelivery طولانی‌مدت به زیرساخت Scheduler/Delayed Delivery وابسته است و خارج از محدوده این زیرمرحله باقی می‌ماند. پس از اتمام تلاش‌ها، تصمیم وضعیت نهایی و Dead Letter در مرحله ۶.۴ انجام می‌شود.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -763,9 +769,10 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۶.۳ — Retry و Backoff
 
-- **وضعیت:** درحال‌انجام
-- ثبت ماندگار آخرین خطا و زمان آخرین تلاش پیاده‌سازی شده است.
-- Retry کوتاه Configuration-driven موجود است؛ Backoff بلندمدت و شمارنده تلاش هنوز پیاده‌سازی نشده‌اند.
+- **وضعیت:** آماده‌بازبینی
+- ثبت ماندگار آخرین خطا، زمان آخرین تلاش و `AttemptCount`.
+- Retry مخصوص Webhook با Backoff افزایشی و Configuration-driven.
+- حفظ Retry ثابت مشترک برای سایر Consumerها.
 
 #### مرحله ۶.۴ — خطای دائمی و Dead Letter
 
@@ -902,5 +909,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | پس از بازبینی مرحله ۶.۲، WebhookDeliveryId مستقل اضافه و رزرو یکتای Delivery از ارسال HTTP جدا شد؛ جریان به دو Consumer و پیام میانی Outbox تقسیم و تصمیم D-060 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | پس از بازبینی مجدد مرحله ۶.۲، Event و Consumer میانی حذف و جریان به یک Consumer بازگردانده شد؛ ثبت Pending پیش از HTTP و مدیریت خطای Unique مطابق D-061 جایگزین شدند. |
 | ۱۴۰۵/۰۸/۲۹ | Webhook Endpoint از Consumer Outbox سراسری مستثنا شد تا Pending و آخرین خطای HTTP پیش از Retry ماندگار شوند؛ تصمیم D-062 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | مرحله ۶.۳ با AttemptCount ماندگار و Retry افزایشی مخصوص Webhook تکمیل شد؛ تصمیم D-063 ثبت شد. |
 
 </div>

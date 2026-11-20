@@ -43,5 +43,8 @@ internal sealed class WebhookDeliveryConfiguration
 
         builder.Property(delivery => delivery.LastError)
             .HasMaxLength(WebhookDelivery.MaxErrorLength);
+
+        builder.Property(delivery => delivery.AttemptCount)
+            .IsRequired();
     }
 }

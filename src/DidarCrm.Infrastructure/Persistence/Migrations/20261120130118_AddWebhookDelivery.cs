@@ -20,7 +20,8 @@ namespace DidarCrm.Infrastructure.Persistence.Migrations
                     Status = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false),
                     CreatedAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: false),
                     LastAttemptAt = table.Column<DateTimeOffset>(type: "datetimeoffset", nullable: true),
-                    LastError = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: true)
+                    LastError = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: true),
+                    AttemptCount = table.Column<int>(type: "int", nullable: false)
                 },
                 constraints: table =>
                 {

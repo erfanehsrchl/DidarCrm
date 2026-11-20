@@ -35,6 +35,7 @@ public sealed class SendActivityWebhookHandlerTests
         Assert.Equal(command.ActivityId, sender.Payload?.ActivityId);
         Assert.Equal(Now, delivery.LastAttemptAtUtc);
         Assert.Null(delivery.LastError);
+        Assert.Equal(1, delivery.AttemptCount);
         Assert.Equal(2, unitOfWork.SaveChangesCount);
     }
 
@@ -108,6 +109,7 @@ public sealed class SendActivityWebhookHandlerTests
         Assert.Equal(WebhookDeliveryStatus.Pending, delivery.Status);
         Assert.Equal(Now, delivery.LastAttemptAtUtc);
         Assert.Equal("Destination unavailable", delivery.LastError);
+        Assert.Equal(1, delivery.AttemptCount);
         Assert.Equal(2, unitOfWork.SaveChangesCount);
     }
 
