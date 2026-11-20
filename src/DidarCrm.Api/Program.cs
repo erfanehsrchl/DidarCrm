@@ -20,11 +20,17 @@ var outboxDeliveryOptions = builder.Configuration
     .Get<OutboxDeliveryOptions>()
     ?? throw new InvalidOperationException(
         $"Configuration section '{OutboxDeliveryOptions.SectionName}' was not found.");
+var consumerProcessingOptions = builder.Configuration
+    .GetSection(ConsumerProcessingOptions.SectionName)
+    .Get<ConsumerProcessingOptions>()
+    ?? throw new InvalidOperationException(
+        $"Configuration section '{ConsumerProcessingOptions.SectionName}' was not found.");
 
 builder.Services.AddInfrastructure(
     connectionString,
     rabbitMqOptions,
-    outboxDeliveryOptions);
+    outboxDeliveryOptions,
+    consumerProcessingOptions);
 builder.Services.AddApplication(typeof(CreateActivityRequestValidator).Assembly);
 builder.Services.AddPresentation();
 builder.Services.AddEndpointsApiExplorer();

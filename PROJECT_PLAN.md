@@ -431,6 +431,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** تنظیمات Delivery شامل `QueryMessageLimit`، `MessageDeliveryLimit`، `QueryDelay`، `QueryTimeout` و `MessageDeliveryTimeout` از Configuration خوانده می‌شوند. Flag فعال‌سازی نیز Configuration-driven است و تا ایجاد Queueهای Consumer خاموش باقی می‌ماند. Retry و Concurrency اختصاصی Delivery اضافه نمی‌شوند، زیرا API مستقیم آن‌ها در MassTransit 8.4 وجود ندارد و رفتار داخلی کتابخانه استفاده می‌شود.
 - **دلیل:** استفاده از گزینه‌های نسخه‌های جدیدتر در نسخه 8.4 قابل اتکا نیست. همچنین فعال‌کردن Delivery پیش از وجود Queue پایدار می‌تواند پیام تحویل‌شده به Exchange را از دسترس Consumerهای آینده خارج کند.
 
+### D-052 — Policy مشترک Consumerها
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** تمام Receive Endpointهایی که با `ConfigureEndpoints` ساخته می‌شوند، به‌صورت مشترک از Entity Framework Consumer Outbox روی `CrmDbContext`، Duplicate Detection Window سی‌دقیقه‌ای و سه Retry کوتاه با فاصله یک ثانیه استفاده می‌کنند. این مقادیر از Configuration خوانده می‌شوند. Redelivery زمان‌دار تا مشخص‌شدن خطاهای موقت واقعی هر Consumer و انتخاب مکانیزم سازگار با RabbitMQ به تعویق می‌افتد.
+- **دلیل:** Consumer Outbox ثبت Inbox، تغییرات دیتابیس و پیام‌های خروجی Consumer را اتمیک می‌کند. Retry کوتاه برای خطاهای گذرا مناسب است، اما Redelivery بلندمدت یک تصمیم عملیاتی وابسته به Consumer است و نباید بدون نیاز واقعی یا Plugin لازم به همه Endpointها تحمیل شود.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -640,8 +646,10 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۴.۴ — Consumer Outbox و Retry
 
-- **وضعیت:** شروع‌نشده
-- تنظیم Consumer Outbox، Duplicate Detection Window و سیاست Retry/Redelivery.
+- **وضعیت:** آماده‌بازبینی
+- تنظیم Consumer Outbox و Duplicate Detection Window برای تمام Receive Endpointهای آینده.
+- تنظیم Retry کوتاه مشترک و Configuration-driven.
+- به‌تعویق‌انداختن Redelivery بلندمدت تا پیاده‌سازی Consumer و شناخت Failure Mode واقعی آن.
 
 #### مرحله ۴.۵ — تست قطع Broker
 
@@ -812,5 +820,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | مراحل ۴.۱ و ۴.۲ شامل Docker Compose، Baseline محلی جداول قدیمی، اتصال RabbitMQ، Topic Exchange و Bus Outbox بدون Delivery Service پیاده‌سازی شدند؛ تصمیم‌های D-049 و D-050 ثبت شدند. |
 | ۱۴۰۵/۰۸/۲۹ | نوع Exchange مربوط به `ActivityCreatedEvent` به‌دلیل نیاز همه Consumerها به تمام پیام‌ها و نبود Routing Key از Topic به Fanout تغییر کرد؛ تصمیم‌های D-012 و D-050 اصلاح شدند. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۴.۳ شامل تنظیم Configuration-driven مربوط به Query و Delivery در Bus Outbox پیاده‌سازی شد؛ فعال‌سازی Delivery تا ایجاد Queueهای Consumer به تعویق افتاد و تصمیم D-051 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | مرحله ۴.۴ شامل Consumer Outbox، بازه Duplicate Detection و Retry کوتاه مشترک برای Endpointهای آینده پیاده‌سازی شد؛ تصمیم D-052 ثبت شد. |
 
 </div>

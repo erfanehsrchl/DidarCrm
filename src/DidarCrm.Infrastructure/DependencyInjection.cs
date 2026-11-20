@@ -19,10 +19,12 @@ public static class DependencyInjection
         this IServiceCollection services,
         string connectionString,
         RabbitMqOptions? rabbitMqOptions = null,
-        OutboxDeliveryOptions? outboxDeliveryOptions = null)
+        OutboxDeliveryOptions? outboxDeliveryOptions = null,
+        ConsumerProcessingOptions? consumerProcessingOptions = null)
     {
         rabbitMqOptions ??= new RabbitMqOptions();
         outboxDeliveryOptions ??= new OutboxDeliveryOptions();
+        consumerProcessingOptions ??= new ConsumerProcessingOptions();
 
         services.AddDbContext<CrmDbContext>(options =>
             options.UseSqlServer(connectionString));
@@ -32,6 +34,8 @@ public static class DependencyInjection
             configurator.AddEntityFrameworkOutbox<CrmDbContext>(outbox =>
             {
                 outbox.UseSqlServer();
+                outbox.DuplicateDetectionWindow =
+                    consumerProcessingOptions.DuplicateDetectionWindow;
                 outbox.QueryMessageLimit =
                     outboxDeliveryOptions.QueryMessageLimit;
                 outbox.QueryDelay = outboxDeliveryOptions.QueryDelay;
@@ -51,6 +55,16 @@ public static class DependencyInjection
                 });
             });
 
+            configurator.AddConfigureEndpointsCallback(
+                (context, _, endpoint) =>
+                {
+                    endpoint.UseMessageRetry(retry =>
+                        retry.Interval(
+                            consumerProcessingOptions.RetryCount,
+                            consumerProcessingOptions.RetryInterval));
+                    endpoint.UseEntityFrameworkOutbox<CrmDbContext>(context);
+                });
+
             if (!rabbitMqOptions.Enabled)
             {
                 configurator.UsingInMemory((context, bus) =>
@@ -58,7 +72,7 @@ public static class DependencyInjection
                 return;
             }
 
-            configurator.UsingRabbitMq((_, bus) =>
+            configurator.UsingRabbitMq((context, bus) =>
             {
                 bus.Host(
                     rabbitMqOptions.Host,
@@ -74,6 +88,8 @@ public static class DependencyInjection
                         MessagingTopology.ActivityCreatedExchange));
                 bus.Publish<ActivityCreatedEvent>(publish =>
                     publish.ExchangeType = ExchangeType.Fanout);
+
+                bus.ConfigureEndpoints(context);
             });
         });
 
