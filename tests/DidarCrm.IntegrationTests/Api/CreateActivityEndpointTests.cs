@@ -312,6 +312,8 @@ public sealed class CreateActivityApiFixture : IAsyncLifetime
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            builder.UseSetting("RabbitMq:Enabled", "false");
+
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<DbContextOptions<CrmDbContext>>();

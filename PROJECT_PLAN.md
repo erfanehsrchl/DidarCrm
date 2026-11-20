@@ -194,8 +194,8 @@ DidarCrm.Infrastructure/Persistence/Migrations
 ### D-012 — Eventها و Consumerها
 
 - **وضعیت:** پذیرفته‌شده
-- **تصمیم:** `ActivityCreatedEvent` روی یک Topic Exchange منتشر می‌شود و Notification و Webhook هرکدام Queue مستقل و Durable دارند. Versioning قرارداد تا زمانی که نیاز واقعی به تغییر Breaking ایجاد نشده، اضافه نمی‌شود.
-- **دلیل:** هر Consumer باید Event را مستقل دریافت کند. Queueهای جدا Retry و Failure Handling آن‌ها را نیز از هم ایزوله می‌کنند.
+- **تصمیم:** `ActivityCreatedEvent` روی یک Fanout Exchange منتشر می‌شود و Notification و Webhook هرکدام Queue مستقل و Durable دارند. Versioning قرارداد تا زمانی که نیاز واقعی به تغییر Breaking ایجاد نشده، اضافه نمی‌شود.
+- **دلیل:** هر دو Consumer باید تمام Eventهای ایجاد Activity را مستقل دریافت کنند و در حال حاضر هیچ نیاز واقعی به Routing Key یا فیلتر پیام وجود ندارد. Queueهای جدا Retry و Failure Handling آن‌ها را نیز از هم ایزوله می‌کنند.
 
 ### D-013 — Idempotency در Consumer
 
@@ -413,6 +413,18 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** API از Controller و Actionهای برگرداننده `IActionResult` استفاده می‌کند. مدل‌های ورودی Controller و Validatorهای آن‌ها در API و با پسوند `Request`، مدل‌های خروجی HTTP با پسوند `Response` و خروجی Use Case با پسوند `Result` نگهداری می‌شوند. ایجاد و Replay هر دو پاسخ یکسان `200 OK` در قالب `ApiResponse<CreateActivityResponse>` می‌دهند. `BaseController.HandleResult` تبدیل Result Pattern به `ApiResponse<T>` و Status Code مناسب را متمرکز می‌کند. Package FluentValidation و مکانیزم ثبت Assemblyهای Validator در Application قرار دارد و `AddApplication` خود Handler را نیز ثبت می‌کند. `AutoValidationFilter` سراسری Requestها را پیش از Action بررسی می‌کند؛ Handler دیگر `IValidator<CreateActivityCommand>` دریافت یا Validation را دستی اجرا نمی‌کند و Domain همچنان آخرین محافظ Invariantهاست. Headerها مستقیماً و بدون Attribute اختصاصی با `[FromHeader]` bind می‌شوند. تنظیم پاسخ خطای Model Binding در `AddPresentation` باقی می‌ماند تا خطاهای قبل از Action نیز برخلاف رفتار پیش‌فرض `[ApiController]` در قالب `ApiResponse<T>` باشند.
 - **دلیل:** این ساختار از الگوی واقعی `NamadeNo.Investment` شامل `AutoValidationFilter`، `BaseController.HandleResult`، `ApiResponse<T>` و `GlobalExceptionMiddleware` اقتباس شده و abstractionهای اختصاصی غیرضروری حذف شده‌اند. تنظیم اضافه Model State آگاهانه حفظ شده است، زیرا NamadeNo در خطاهای JSON و Model Binding قالب ثابت `ApiResponse<T>` را تضمین نمی‌کند. در DidarCrm نیز `IsSuccess` برخلاف پیاده‌سازی مرجع از وجود یا نبود `Data` حدس زده نمی‌شود؛ نتیجه صریح `Result` مبنا قرار می‌گیرد.
 
+### D-049 — زیرساخت محلی SQL Server و RabbitMQ
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** SQL Server 2022 و RabbitMQ Management با Docker Compose، Volume ماندگار، Health Check و Credential قابل جایگزینی با Environment Variable اجرا می‌شوند. یک اسکریپت Idempotent، Schema حداقلی نسخه قدیمی را پیش از Expand Migration در دیتابیس محلی می‌سازد.
+- **دلیل:** Migration پروژه عمداً فرض می‌کند جداول قدیمی Production وجود دارند؛ ایجاد Baseline محلی خارج از Migration، رفتار واقعی Expand Migration را بدون تبدیل آن به Migration ساخت یک سیستم جدید حفظ می‌کند.
+
+### D-050 — فعال‌سازی مرحله‌ای Bus Outbox
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** MassTransit RabbitMQ و Transactional Bus Outbox روی `CrmDbContext` فعال می‌شوند. `ActivityCreatedEvent` روی Exchange پایدار `didar-crm.activity-created` از نوع Fanout منتشر خواهد شد و نام Queueهای Notification و Webhook از اکنون ثابت است. Delivery Service در مرحله ۴.۲ غیرفعال می‌ماند و در مرحله ۴.۳ پس از تنظیم Delivery فعال می‌شود؛ Queue و Binding هر Consumer نیز هم‌زمان با پیاده‌سازی همان Consumer ساخته می‌شود.
+- **دلیل:** ساخت Receive Endpoint بدون Consumer می‌تواند پیام را بدون اثر تجاری مصرف کند و تحویل Event به Exchange پیش از ایجاد Queue پایدار نیز پیام را از دست می‌دهد. تا آماده‌شدن Consumerها، پیام‌ها باید در Outbox SQL باقی بمانند.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -548,33 +560,33 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۲.۵.۲ — ترجمه Duplicate Request Key
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - تبدیل خطای Unique Index مشخص `(TenantId, RequestKey)` به `DuplicateRequestKeyException`.
 - سایر خطاهای `DbUpdateException` بدون تغییر منتشر می‌شوند.
 - ایجاد خود Index و تست واقعی خطا در مرحله ۲.۶ انجام می‌شود.
 
 #### مرحله ۲.۶.۱ — تعریف Filtered Unique Index
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - تعریف Unique Index ترکیبی روی Tenant و Request Key با Filter مربوط به رکوردهای قدیمی.
 - تأیید نام، ترتیب ستون‌ها، یکتایی و Filter در EF Model Test.
 - هنوز Migration یا Index واقعی در SQL Server ایجاد نشده است.
 
 #### مرحله ۲.۶.۲ — Expand Migration
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - ایجاد Migration سازگار برای ستون `RequestKey`، جداول استاندارد MassTransit و Filtered Unique Index.
 - حفظ جدول‌های قدیمی در هر دو مسیر `Up` و `Down` و افزودن Factory مستقل برای ابزار EF.
 
 #### مرحله ۲.۶.۳ — تست Rollback تراکنش
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - اثبات Rollback اتمیک Activity، Contact و Outbox روی SQL Server واقعی پس از اعمال Migration.
 - اجرای تست روی SQL Server موقت با Testcontainers و Schema قدیمی واقعی.
 
 #### مرحله ۲.۷ — تست Concurrency در SQL Server
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - تست درخواست همزمان و Monotonic بودن `LastActivityAt` با Testcontainers.
 - اجبار ترتیب Save برای اثبات اجرای Conflict و Retry، نه صرفاً نتیجه‌ای وابسته به زمان‌بندی Threadها.
 
@@ -582,19 +594,19 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۳.۱ — Endpoint و DTOها
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - افزودن `POST /api/v1/activities` با Controller و Action دارای خروجی `IActionResult`.
 - افزودن Request/Response مستقل HTTP، ثبت Handler و پیاده‌سازی Production مربوط به `IClock`.
 
 #### مرحله ۳.۲ — Validation و Problem Details
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - اعتبارسنجی خودکار Body Request با FluentValidation و Headerها با Model Binding؛ بدون تزریق Validator در Handler.
 - نگاشت مشترک Resultهای Application به `ApiResponse<T>` توسط `BaseController.HandleResult`.
 
 #### مرحله ۳.۳ — پاسخ Replay و تست Endpoint
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - پاسخ یکسان `200 OK` برای ایجاد و Replay بدون نمایش نوع نتیجه به Client.
 - افزودن `[ProducesResponseType]`، Swagger و Integration Testهای HTTP و OpenAPI.
 - تست Host واقعی با `WebApplicationFactory` و SQL Server موقت برای Success، Replay، Validation فارسی، Not Found و Conflict.
@@ -603,14 +615,15 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۴.۱ — Docker Compose زیرساخت محلی
 
-- **وضعیت:** شروع‌نشده
+- **وضعیت:** آماده‌بازبینی
 - افزودن SQL Server و RabbitMQ و مستند اجرای محلی.
 
 #### مرحله ۴.۲ — اتصال و توپولوژی RabbitMQ
 
-- **وضعیت:** شروع‌نشده
-- افزودن Transport مربوط به MassTransit RabbitMQ و تنظیم Exchange و Queueها.
-- فعال‌سازی Transactional Bus Outbox روی `CrmDbContext` و تکمیل Dependency مربوط به `IPublishEndpoint` در Adapter مرحله ۲.۳.۱.
+- **وضعیت:** آماده‌بازبینی
+- افزودن Transport مربوط به MassTransit RabbitMQ، Exchange نوع Fanout و نام‌های ثابت Queueها.
+- فعال‌سازی Transactional Bus Outbox روی `CrmDbContext`، تکمیل Dependency مربوط به `IPublishEndpoint` و غیرفعال‌ماندن موقت Delivery Service تا مرحله ۴.۳.
+- ایجاد Receive Endpoint و Binding واقعی Queueها همراه Consumerهای مراحل ۵ و ۶ انجام می‌شود.
 
 #### مرحله ۴.۳ — تنظیم Outbox Delivery
 
@@ -787,5 +800,8 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | مراحل ۳.۱ تا ۳.۳ شامل Endpoint ثبت Activity، Validation، Problem Details، پاسخ Created/Replay و تست‌های HTTP پیاده‌سازی شدند؛ تصمیم D-047 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | بنا بر بازبینی API، Outcome و Problem Details با Controller، Result خروجی Application، Validation خودکار، `HandleResult`، `ApiResponse<T>` و Swagger جایگزین شدند؛ تصمیم D-048 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | الگوی API با ماژول `NamadeNo.Investment` تطبیق داده شد؛ Request Validatorها در API باقی ماندند، ثبت Validation مربوط به Use Case به Application منتقل و abstractionهای اختصاصی Header و Error Factory حذف شدند. |
+| ۱۴۰۵/۰۸/۲۹ | وضعیت مراحل بازبینی‌شده ۲.۵.۲ تا ۳.۳ به «پذیرفته‌شده» تغییر کرد. |
+| ۱۴۰۵/۰۸/۲۹ | مراحل ۴.۱ و ۴.۲ شامل Docker Compose، Baseline محلی جداول قدیمی، اتصال RabbitMQ، Topic Exchange و Bus Outbox بدون Delivery Service پیاده‌سازی شدند؛ تصمیم‌های D-049 و D-050 ثبت شدند. |
+| ۱۴۰۵/۰۸/۲۹ | نوع Exchange مربوط به `ActivityCreatedEvent` به‌دلیل نیاز همه Consumerها به تمام پیام‌ها و نبود Routing Key از Topic به Fanout تغییر کرد؛ تصمیم‌های D-012 و D-050 اصلاح شدند. |
 
 </div>

@@ -3,14 +3,20 @@ using DidarCrm.Api.Common;
 using DidarCrm.Api.Validation;
 using DidarCrm.Application;
 using DidarCrm.Infrastructure;
+using DidarCrm.Infrastructure.Messaging;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString("Database")
     ?? throw new InvalidOperationException("Connection string 'Database' was not found.");
+var rabbitMqOptions = builder.Configuration
+    .GetSection(RabbitMqOptions.SectionName)
+    .Get<RabbitMqOptions>()
+    ?? throw new InvalidOperationException(
+        $"Configuration section '{RabbitMqOptions.SectionName}' was not found.");
 
-builder.Services.AddInfrastructure(connectionString);
+builder.Services.AddInfrastructure(connectionString, rabbitMqOptions);
 builder.Services.AddApplication(typeof(CreateActivityRequestValidator).Assembly);
 builder.Services.AddPresentation();
 builder.Services.AddEndpointsApiExplorer();

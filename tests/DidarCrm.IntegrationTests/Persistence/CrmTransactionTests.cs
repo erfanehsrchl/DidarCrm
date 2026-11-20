@@ -2,9 +2,11 @@ using DidarCrm.Application.Abstractions.Messaging;
 using DidarCrm.Application.Abstractions.Persistence;
 using DidarCrm.Application.Abstractions.Time;
 using DidarCrm.Application.Activities.CreateActivity;
+using DidarCrm.Application.Activities.Events;
 using DidarCrm.Domain.Activities;
 using DidarCrm.Domain.Contacts;
 using DidarCrm.Infrastructure;
+using DidarCrm.Infrastructure.Messaging;
 using DidarCrm.Infrastructure.Persistence;
 using MassTransit.EntityFrameworkCoreIntegration;
 using Microsoft.Data.SqlClient;
@@ -167,6 +169,59 @@ public sealed class CrmTransactionTests : IAsyncLifetime
 
         Assert.Equal(laterActivityAt, persistedContact.LastActivityAt);
         Assert.Equal(2, await verificationContext.Activities.CountAsync());
+    }
+
+    [Fact]
+    public async Task CreateActivity_PersistsEventInMassTransitBusOutbox()
+    {
+        var tenantId = TenantId.From(Guid.NewGuid());
+        var contactId = ContactId.From(Guid.NewGuid());
+        var createdAtUtc = new DateTimeOffset(
+            2026,
+            11,
+            20,
+            12,
+            0,
+            0,
+            TimeSpan.Zero);
+
+        await SeedContactAsync(tenantId, contactId, createdAtUtc.AddMinutes(-1));
+
+        await using var serviceProvider = new ServiceCollection()
+            .AddInfrastructure(
+                _sqlServer.GetConnectionString(),
+                new RabbitMqOptions { Enabled = false })
+            .BuildServiceProvider();
+        await using var scope = serviceProvider.CreateAsyncScope();
+
+        var handler = new CreateActivityHandler(
+            scope.ServiceProvider.GetRequiredService<IActivityRepository>(),
+            scope.ServiceProvider.GetRequiredService<IContactRepository>(),
+            scope.ServiceProvider.GetRequiredService<IIntegrationEventPublisher>(),
+            scope.ServiceProvider.GetRequiredService<IUnitOfWork>(),
+            new FixedClock(createdAtUtc));
+
+        var result = await handler.HandleAsync(
+            new CreateActivityCommand(
+                tenantId.Value,
+                contactId.Value,
+                "bus-outbox-request",
+                "Bus outbox activity"));
+
+        Assert.True(result.IsSuccess);
+
+        await using var verificationContext = CreateDbContext();
+        var outboxMessage = await verificationContext
+            .Set<OutboxMessage>()
+            .AsNoTracking()
+            .SingleAsync(message =>
+                message.Body.Contains(
+                    result.Value.ActivityId.ToString()));
+
+        Assert.Contains(
+            nameof(ActivityCreatedEvent),
+            outboxMessage.MessageType,
+            StringComparison.Ordinal);
     }
 
     private async Task SeedExistingRequestAsync(
