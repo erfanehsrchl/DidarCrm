@@ -437,6 +437,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** تمام Receive Endpointهایی که با `ConfigureEndpoints` ساخته می‌شوند، به‌صورت مشترک از Entity Framework Consumer Outbox روی `CrmDbContext`، Duplicate Detection Window سی‌دقیقه‌ای و سه Retry کوتاه با فاصله یک ثانیه استفاده می‌کنند. این مقادیر از Configuration خوانده می‌شوند. Redelivery زمان‌دار تا مشخص‌شدن خطاهای موقت واقعی هر Consumer و انتخاب مکانیزم سازگار با RabbitMQ به تعویق می‌افتد.
 - **دلیل:** Consumer Outbox ثبت Inbox، تغییرات دیتابیس و پیام‌های خروجی Consumer را اتمیک می‌کند. Retry کوتاه برای خطاهای گذرا مناسب است، اما Redelivery بلندمدت یک تصمیم عملیاتی وابسته به Consumer است و نباید بدون نیاز واقعی یا Plugin لازم به همه Endpointها تحمیل شود.
 
+### D-053 — اثبات بازیابی Bus Outbox پس از قطعی Broker
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** رفتار قطعی RabbitMQ با Integration Test واقعی روی SQL Server و RabbitMQ Testcontainer بررسی می‌شود. تست پس از برقراری اولیه Bus، Container RabbitMQ را Pause می‌کند، درخواست Activity را ثبت و ماندگاری پیام در Outbox را تأیید می‌کند؛ سپس Broker را Unpause کرده و تخلیه رکورد Outbox پس از Publisher Confirm را انتظار می‌کشد.
+- **دلیل:** Mock یا In-memory Transport نمی‌تواند جدایی Commit دیتابیس از دسترس‌پذیری Broker و بازیابی Connection واقعی را اثبات کند. Pause/Unpause نسبت به Stop/Start کامل Container سریع‌تر و deterministic‌تر است و همان قطع دسترسی شبکه به Broker را شبیه‌سازی می‌کند.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -653,8 +659,9 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۴.۵ — تست قطع Broker
 
-- **وضعیت:** شروع‌نشده
-- بررسی ثبت Activity هنگام قطعی و انتشار پس از بازیابی.
+- **وضعیت:** آماده‌بازبینی
+- اثبات ثبت Activity و پیام Outbox هنگام قطعی واقعی RabbitMQ.
+- اثبات تخلیه Outbox و انتشار پیام پس از بازیابی Broker.
 
 ### مرحله ۵ — Notification Consumer
 
@@ -821,5 +828,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | نوع Exchange مربوط به `ActivityCreatedEvent` به‌دلیل نیاز همه Consumerها به تمام پیام‌ها و نبود Routing Key از Topic به Fanout تغییر کرد؛ تصمیم‌های D-012 و D-050 اصلاح شدند. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۴.۳ شامل تنظیم Configuration-driven مربوط به Query و Delivery در Bus Outbox پیاده‌سازی شد؛ فعال‌سازی Delivery تا ایجاد Queueهای Consumer به تعویق افتاد و تصمیم D-051 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۴.۴ شامل Consumer Outbox، بازه Duplicate Detection و Retry کوتاه مشترک برای Endpointهای آینده پیاده‌سازی شد؛ تصمیم D-052 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | مرحله ۴.۵ با Integration Test واقعی SQL Server و RabbitMQ برای ثبت هنگام قطعی و انتشار پس از بازیابی Broker پیاده‌سازی شد؛ تصمیم D-053 ثبت شد. |
 
 </div>

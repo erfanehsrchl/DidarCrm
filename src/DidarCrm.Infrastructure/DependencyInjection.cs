@@ -76,6 +76,7 @@ public static class DependencyInjection
             {
                 bus.Host(
                     rabbitMqOptions.Host,
+                    rabbitMqOptions.Port,
                     rabbitMqOptions.VirtualHost,
                     host =>
                     {
