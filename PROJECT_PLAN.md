@@ -467,6 +467,12 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** رفتار Redelivery با انتشار دوباره یک `ActivityCreatedEvent` با Envelope `MessageId` یکسان روی RabbitMQ واقعی آزمایش می‌شود. تست یک رکورد `InboxState`، یک Notification و خالی‌شدن Queue پس از Ack هر دو Delivery را انتظار می‌کشد.
 - **دلیل:** شمارش Notification به‌تنهایی می‌تواند پیش از رسیدن Delivery دوم false-positive شود. بررسی خالی‌شدن Queue از Management API اثبات می‌کند پیام تکراری واقعاً از Queue خارج شده و Inbox استاندارد MassTransit آن را بدون اجرای دوباره اثر تجاری مدیریت کرده است.
 
+### D-058 — هویت و قرارداد Webhook Delivery
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** `WebhookDelivery` شناسه مستقل ندارد و `ActivityId` یکتا هویت آن است. مدل در این مرحله فقط `ActivityId`، وضعیت `Pending/Succeeded` و زمان ایجاد را نگه می‌دارد. همان `ActivityId` در Adapter HTTP آینده مبنای Header مربوط به Idempotency خواهد بود. Payload ارسال شامل اطلاعات Activity است، اما برای جلوگیری از Snapshot تکراری داخل Delivery ذخیره نمی‌شود. Port با نام `IWebhookSender` در Application تعریف می‌شود و موفقیت را با تکمیل `SendAsync` بیان می‌کند؛ طبقه‌بندی خطاها در مرحله Retry اضافه خواهد شد.
+- **دلیل:** برای هر Activity فقط یک Webhook Delivery وجود دارد، پس شناسه دوم اطلاعات جدیدی ایجاد نمی‌کند. کلید مبتنی بر Activity حتی اگر پردازش پس از موفقیت HTTP و قبل از Commit قطع شود، در Redelivery ثابت می‌ماند و مقصد می‌تواند درخواست تکراری را تشخیص دهد.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -717,8 +723,10 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۶.۱ — مدل Delivery و HTTP Port
 
-- **وضعیت:** شروع‌نشده
-- افزودن وضعیت Webhook و قرارداد Sender.
+- **وضعیت:** آماده‌بازبینی
+- افزودن مدل `WebhookDelivery` با هویت `ActivityId` و وضعیت اولیه `Pending`.
+- افزودن رفتار موفقیت و قرارداد `IWebhookSender` همراه Payload مستقل.
+- نگاشت EF، Consumer و Adapter واقعی HTTP در این مرحله پیاده‌سازی نمی‌شوند.
 
 #### مرحله ۶.۲ — ارسال موفق Webhook
 
@@ -860,5 +868,6 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | مراحل ۵.۱ و ۵.۲ شامل Entity و Schema مستقل Notification، Repository و Handler، Consumer ورودی در API و تست end-to-end روی RabbitMQ پیاده‌سازی شدند؛ تصمیم‌های D-054 و D-055 ثبت شدند. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۵.۳ با اتصال خودکار Notification Consumer به Consumer Outbox و `InboxState` از طریق سیاست سراسری مرحله ۴.۴ تکمیل شد؛ از ثبت تکراری Middleware جلوگیری و تصمیم D-056 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۵.۴ با تست Redelivery واقعی روی RabbitMQ، بررسی یک Notification و یک Inbox و انتظار برای تخلیه Queue تکمیل شد؛ تصمیم D-057 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | مرحله ۶.۱ شامل مدل مینیمال Webhook Delivery با هویت Activity، وضعیت Pending/Succeeded و Port ارسال HTTP پیاده‌سازی شد؛ تصمیم D-058 ثبت شد. |
 
 </div>
