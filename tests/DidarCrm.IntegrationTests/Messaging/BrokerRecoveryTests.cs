@@ -1,10 +1,15 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
 using DidarCrm.Api.Contracts;
 using DidarCrm.Api.Contracts.Activities;
+using DidarCrm.Application.Activities.Events;
 using DidarCrm.Domain.Activities;
 using DidarCrm.Domain.Contacts;
 using DidarCrm.Domain.Notifications;
+using DidarCrm.Infrastructure.Messaging;
 using DidarCrm.Infrastructure.Persistence;
 using MassTransit;
 using MassTransit.EntityFrameworkCoreIntegration;
@@ -22,6 +27,7 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
 {
     private const string RabbitUsername = "rabbitmq";
     private const string RabbitPassword = "rabbitmq";
+    private const ushort RabbitManagementPort = 15672;
 
     private readonly MsSqlContainer _sqlServer = new MsSqlBuilder(
         "mcr.microsoft.com/mssql/server:2022-CU14-ubuntu-22.04")
@@ -30,6 +36,7 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
         "rabbitmq:4.1-management")
         .WithUsername(RabbitUsername)
         .WithPassword(RabbitPassword)
+        .WithPortBinding(RabbitManagementPort, true)
         .Build();
 
     public async Task InitializeAsync()
@@ -96,6 +103,58 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
             "The event was not delivered and consumed after RabbitMQ recovered.");
     }
 
+    [Fact]
+    public async Task RedeliveredMessageWithSameMessageIdCreatesOneNotification()
+    {
+        await using var factory = new BrokerRecoveryWebApplicationFactory(
+            _sqlServer.GetConnectionString(),
+            _rabbitMq.Hostname,
+            _rabbitMq.GetMappedPublicPort(RabbitMqBuilder.RabbitMqPort));
+        using var scope = factory.Services.CreateScope();
+        using var managementClient = CreateRabbitManagementClient();
+
+        var messageId = Guid.NewGuid();
+        var activityId = Guid.NewGuid();
+        var message = new ActivityCreatedEvent(
+            messageId,
+            activityId,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Redelivered activity",
+            DateTimeOffset.UtcNow);
+        var bus = scope.ServiceProvider.GetRequiredService<IBus>();
+
+        await bus.Publish(
+            message,
+            context => context.MessageId = messageId);
+        await bus.Publish(
+            message,
+            context => context.MessageId = messageId);
+
+        var duplicateWasConsumed = await WaitUntilAsync(
+            async () =>
+                await CountNotificationsAsync(activityId) == 1 &&
+                await CountInboxEntriesAsync(messageId) == 1 &&
+                await GetNotificationQueueMessageCountAsync(managementClient) == 0,
+            TimeSpan.FromSeconds(60));
+
+        var notificationCount = await CountNotificationsAsync(activityId);
+        var matchingInboxCount = await CountInboxEntriesAsync(messageId);
+        var totalInboxCount = await CountInboxEntriesAsync();
+        var queueMessageCount =
+            await GetNotificationQueueMessageCountAsync(managementClient);
+
+        Assert.True(
+            duplicateWasConsumed,
+            "The duplicate delivery was not consumed within the expected time. " +
+            $"Notifications: {notificationCount}; " +
+            $"Matching inbox entries: {matchingInboxCount}; " +
+            $"Total inbox entries: {totalInboxCount}; " +
+            $"Queue messages: {queueMessageCount?.ToString() ?? "unavailable"}.");
+        Assert.Equal(1, notificationCount);
+        Assert.Equal(1, matchingInboxCount);
+    }
+
     private async Task SeedContactAsync(Guid tenantId, Guid contactId)
     {
         await using var dbContext = CreateDbContext();
@@ -120,6 +179,67 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
 
         return await dbContext.Set<ActivityNotification>().AnyAsync(
             notification => notification.ActivityId == id);
+    }
+
+    private async Task<int> CountNotificationsAsync(Guid activityId)
+    {
+        await using var dbContext = CreateDbContext();
+        var id = ActivityId.From(activityId);
+
+        return await dbContext.Set<ActivityNotification>().CountAsync(
+            notification => notification.ActivityId == id);
+    }
+
+    private async Task<int> CountInboxEntriesAsync(Guid messageId)
+    {
+        await using var dbContext = CreateDbContext();
+
+        return await dbContext.Set<InboxState>().CountAsync(
+            inbox => inbox.MessageId == messageId);
+    }
+
+    private async Task<int> CountInboxEntriesAsync()
+    {
+        await using var dbContext = CreateDbContext();
+
+        return await dbContext.Set<InboxState>().CountAsync();
+    }
+
+    private HttpClient CreateRabbitManagementClient()
+    {
+        var client = new HttpClient
+        {
+            BaseAddress = new Uri(
+                $"http://{_rabbitMq.Hostname}:" +
+                $"{_rabbitMq.GetMappedPublicPort(RabbitManagementPort)}/")
+        };
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue(
+                "Basic",
+                Convert.ToBase64String(
+                    Encoding.ASCII.GetBytes(
+                        $"{RabbitUsername}:{RabbitPassword}")));
+
+        return client;
+    }
+
+    private static async Task<int?> GetNotificationQueueMessageCountAsync(
+        HttpClient client)
+    {
+        using var response = await client.GetAsync(
+            $"api/queues/%2F/{MessagingTopology.NotificationQueue}");
+
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        await using var content = await response.Content.ReadAsStreamAsync();
+        using var queue = await JsonDocument.ParseAsync(content);
+
+        return queue.RootElement.TryGetProperty("messages", out var messages)
+            ? messages.GetInt32()
+            : null;
     }
 
     private CrmDbContext CreateDbContext()

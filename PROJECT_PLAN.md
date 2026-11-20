@@ -455,6 +455,18 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** Consumerهای MassTransit به‌عنوان ورودی سیستم در پروژه API و کنار Controllerها قرار می‌گیرند. Consumer فقط پیام Transport را به Command لایه Application نگاشت می‌کند. تنظیم Broker، Outbox و Persistence در Infrastructure باقی می‌ماند و API ثبت Consumerها را از طریق callback به Registration زیرساخت اعلام می‌کند.
 - **دلیل:** Consumer مانند Controller یک Inbound Adapter است. قرار دادن آن در API جهت وابستگی Clean Architecture را حفظ می‌کند و Infrastructure را از شناخت Host و Consumerهای Presentation بی‌نیاز نگه می‌دارد.
 
+### D-056 — اتصال Notification Consumer به Inbox استاندارد MassTransit
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** برای Notification Consumer تنظیم اختصاصی و تکراری Outbox اضافه نمی‌شود. Callback سراسری Receive Endpointها که در مرحله ۴.۴ پیاده شده، `UseEntityFrameworkOutbox<CrmDbContext>` را روی Queue اعلان نیز اعمال می‌کند. در نتیجه پردازش پیام و ثبت Notification با `InboxState` و همان `CrmDbContext` در یک مرز تراکنشی قرار می‌گیرند و `DuplicateDetectionWindow` مشترک نیز روی آن اعمال می‌شود.
+- **دلیل:** سیاست Consumer Outbox یک دغدغه زیرساختی مشترک بین Consumerها است. ثبت دوباره همان Middleware در `ActivityCreatedNotificationConsumerDefinition` هم تکراری است و هم احتمال رفتار مبهم در Pipeline را ایجاد می‌کند. مرحله ۵.۴ رفتار Deduplication را با تحویل مجدد واقعی اثبات خواهد کرد.
+
+### D-057 — اثبات Deduplication در تحویل مجدد
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** رفتار Redelivery با انتشار دوباره یک `ActivityCreatedEvent` با Envelope `MessageId` یکسان روی RabbitMQ واقعی آزمایش می‌شود. تست یک رکورد `InboxState`، یک Notification و خالی‌شدن Queue پس از Ack هر دو Delivery را انتظار می‌کشد.
+- **دلیل:** شمارش Notification به‌تنهایی می‌تواند پیش از رسیدن Delivery دوم false-positive شود. بررسی خالی‌شدن Queue از Management API اثبات می‌کند پیام تکراری واقعاً از Queue خارج شده و Inbox استاندارد MassTransit آن را بدون اجرای دوباره اثر تجاری مدیریت کرده است.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -691,13 +703,15 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۵.۳ — Inbox و Deduplication
 
-- **وضعیت:** شروع‌نشده
-- اتصال Consumer به Consumer Outbox و `InboxState` استاندارد MassTransit.
+- **وضعیت:** آماده‌بازبینی
+- اتصال Consumer به Consumer Outbox و `InboxState` استاندارد MassTransit از طریق Callback سراسری مرحله ۴.۴.
+- اعمال `DuplicateDetectionWindow` مشترک بدون ثبت دوباره Middleware در Consumer Definition.
 
 #### مرحله ۵.۴ — تست Redelivery
 
-- **وضعیت:** شروع‌نشده
-- اثبات جلوگیری از اعلان تکراری.
+- **وضعیت:** آماده‌بازبینی
+- انتشار دو Delivery با Envelope `MessageId` یکسان روی RabbitMQ واقعی.
+- اثبات ایجاد تنها یک Inbox و یک Notification پس از مصرف و Ack هر دو Delivery.
 
 ### مرحله ۶ — Webhook Delivery
 
@@ -844,5 +858,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۴.۴ شامل Consumer Outbox، بازه Duplicate Detection و Retry کوتاه مشترک برای Endpointهای آینده پیاده‌سازی شد؛ تصمیم D-052 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۴.۵ با Integration Test واقعی SQL Server و RabbitMQ برای ثبت هنگام قطعی و انتشار پس از بازیابی Broker پیاده‌سازی شد؛ تصمیم D-053 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مراحل ۵.۱ و ۵.۲ شامل Entity و Schema مستقل Notification، Repository و Handler، Consumer ورودی در API و تست end-to-end روی RabbitMQ پیاده‌سازی شدند؛ تصمیم‌های D-054 و D-055 ثبت شدند. |
+| ۱۴۰۵/۰۸/۲۹ | مرحله ۵.۳ با اتصال خودکار Notification Consumer به Consumer Outbox و `InboxState` از طریق سیاست سراسری مرحله ۴.۴ تکمیل شد؛ از ثبت تکراری Middleware جلوگیری و تصمیم D-056 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | مرحله ۵.۴ با تست Redelivery واقعی روی RabbitMQ، بررسی یک Notification و یک Inbox و انتظار برای تخلیه Queue تکمیل شد؛ تصمیم D-057 ثبت شد. |
 
 </div>
