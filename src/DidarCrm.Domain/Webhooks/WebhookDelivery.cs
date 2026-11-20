@@ -4,14 +4,21 @@ namespace DidarCrm.Domain.Webhooks;
 
 public sealed class WebhookDelivery
 {
+    public const int MaxErrorLength = 2000;
+
     private WebhookDelivery(
+        WebhookDeliveryId id,
         ActivityId activityId,
+        WebhookDeliveryStatus status,
         DateTimeOffset createdAtUtc)
     {
+        Id = id;
         ActivityId = activityId;
         CreatedAtUtc = createdAtUtc;
-        Status = WebhookDeliveryStatus.Pending;
+        Status = status;
     }
+
+    public WebhookDeliveryId Id { get; }
 
     public ActivityId ActivityId { get; }
 
@@ -19,17 +26,40 @@ public sealed class WebhookDelivery
 
     public DateTimeOffset CreatedAtUtc { get; }
 
+    public DateTimeOffset? LastAttemptAtUtc { get; private set; }
+
+    public string? LastError { get; private set; }
+
     public static WebhookDelivery Create(
         ActivityId activityId,
         DateTimeOffset createdAtUtc)
     {
         ArgumentNullException.ThrowIfNull(activityId);
 
-        return new WebhookDelivery(activityId, createdAtUtc);
+        return new WebhookDelivery(
+            WebhookDeliveryId.New(),
+            activityId,
+            WebhookDeliveryStatus.Pending,
+            createdAtUtc);
     }
 
-    public void MarkSucceeded()
+    public void MarkSucceeded(DateTimeOffset attemptedAtUtc)
     {
         Status = WebhookDeliveryStatus.Succeeded;
+        LastAttemptAtUtc = attemptedAtUtc;
+        LastError = null;
+    }
+
+    public void RecordFailure(
+        string error,
+        DateTimeOffset attemptedAtUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(error);
+
+        Status = WebhookDeliveryStatus.Pending;
+        LastAttemptAtUtc = attemptedAtUtc;
+        LastError = error.Length <= MaxErrorLength
+            ? error
+            : error[..MaxErrorLength];
     }
 }

@@ -1,6 +1,7 @@
 using DidarCrm.Domain.Activities;
 using DidarCrm.Domain.Contacts;
 using DidarCrm.Domain.Notifications;
+using DidarCrm.Domain.Webhooks;
 using DidarCrm.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -68,6 +69,34 @@ public sealed class CrmDbContextModelTests
             nameof(ActivityNotification.ActivityId),
             Assert.Single(activityIdIndex.Properties).Name);
 
+        var webhookDelivery = dbContext.Model.FindEntityType(
+            typeof(WebhookDelivery));
+
+        Assert.NotNull(webhookDelivery);
+        Assert.Equal("crmWebhookDelivery", webhookDelivery.GetTableName());
+        Assert.Equal(
+            nameof(WebhookDelivery.Id),
+            Assert.Single(webhookDelivery.FindPrimaryKey()!.Properties).Name);
+        var webhookActivityIndex = Assert.Single(
+            webhookDelivery.GetIndexes(),
+            index => index.GetDatabaseName() ==
+                "UX_crmWebhookDelivery_ActivityId");
+        Assert.True(webhookActivityIndex.IsUnique);
+        Assert.Equal(
+            nameof(WebhookDelivery.ActivityId),
+            Assert.Single(webhookActivityIndex.Properties).Name);
+        Assert.Equal(
+            32,
+            webhookDelivery.FindProperty(nameof(WebhookDelivery.Status))
+                ?.GetMaxLength());
+        Assert.Equal(
+            WebhookDelivery.MaxErrorLength,
+            webhookDelivery.FindProperty(nameof(WebhookDelivery.LastError))
+                ?.GetMaxLength());
+        Assert.True(
+            webhookDelivery.FindProperty(
+                nameof(WebhookDelivery.LastAttemptAtUtc))?.IsNullable);
+
         var tableNames = dbContext.Model
             .GetEntityTypes()
             .Select(entity => entity.GetTableName())
@@ -77,5 +106,6 @@ public sealed class CrmDbContextModelTests
         Assert.Contains("OutboxMessage", tableNames);
         Assert.Contains("OutboxState", tableNames);
         Assert.Contains("crmNotification", tableNames);
+        Assert.Contains("crmWebhookDelivery", tableNames);
     }
 }

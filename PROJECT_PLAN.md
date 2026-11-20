@@ -469,9 +469,33 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 ### D-058 — هویت و قرارداد Webhook Delivery
 
-- **وضعیت:** پذیرفته‌شده
+- **وضعیت:** اصلاح‌شده توسط D-060
 - **تصمیم:** `WebhookDelivery` شناسه مستقل ندارد و `ActivityId` یکتا هویت آن است. مدل در این مرحله فقط `ActivityId`، وضعیت `Pending/Succeeded` و زمان ایجاد را نگه می‌دارد. همان `ActivityId` در Adapter HTTP آینده مبنای Header مربوط به Idempotency خواهد بود. Payload ارسال شامل اطلاعات Activity است، اما برای جلوگیری از Snapshot تکراری داخل Delivery ذخیره نمی‌شود. Port با نام `IWebhookSender` در Application تعریف می‌شود و موفقیت را با تکمیل `SendAsync` بیان می‌کند؛ طبقه‌بندی خطاها در مرحله Retry اضافه خواهد شد.
 - **دلیل:** برای هر Activity فقط یک Webhook Delivery وجود دارد، پس شناسه دوم اطلاعات جدیدی ایجاد نمی‌کند. کلید مبتنی بر Activity حتی اگر پردازش پس از موفقیت HTTP و قبل از Commit قطع شود، در Redelivery ثابت می‌ماند و مقصد می‌تواند درخواست تکراری را تشخیص دهد.
+
+### D-059 — مسیر موفق ارسال Webhook
+
+- **وضعیت:** اصلاح‌شده توسط D-060
+- **تصمیم:** `ActivityCreatedWebhookConsumer` در API از Queue پایدار Webhook مصرف می‌کند و اجرای Use Case را به `SendActivityWebhookHandler` می‌سپارد. Handler ابتدا Payload را از Event می‌سازد، آن را از طریق `IWebhookSender` ارسال می‌کند و فقط پس از پاسخ موفق، Delivery با وضعیت `Succeeded` را همراه Inbox در همان `CrmDbContext` ذخیره می‌کند. Adapter زیرساختی با `HttpClientFactory` درخواست POST می‌فرستد و `ActivityId` را در Header با نام `Idempotency-Key` قرار می‌دهد. جدول `crmWebhookDelivery` از `ActivityId` به‌عنوان Primary Key استفاده می‌کند.
+- **دلیل:** Side Effect خارجی قابل Rollback نیست؛ اگر پس از موفقیت HTTP و پیش از Commit قطعی رخ دهد، پیام دوباره پردازش می‌شود. ثابت‌بودن Header به مقصد اجازه Deduplication می‌دهد و Primary Key مبتنی بر Activity نیز از ثبت دو نتیجه موفق جلوگیری می‌کند. رفتار خطا و Backoff در مرحله ۶.۳ تکمیل می‌شود.
+
+### D-060 — جداسازی رزرو Delivery از Side Effect خارجی
+
+- **وضعیت:** اصلاح‌شده توسط D-061
+- **تصمیم:** `WebhookDelivery` شناسه مستقل `WebhookDeliveryId` دارد؛ `Id` کلید اصلی و `ActivityId` دارای Unique Index است. Consumer اول رویداد Activity را می‌گیرد و با یک Insert اتمیک مبتنی بر `UPDLOCK/HOLDLOCK` فقط یک Delivery با وضعیت `Pending` رزرو می‌کند. در همان Consumer Outbox پیام `WebhookDeliveryRequestedEvent` ثبت می‌شود. Consumer دوم Delivery را بارگذاری می‌کند، اگر قبلاً `Succeeded` باشد پایان می‌یابد، در غیر این صورت HTTP را با `WebhookDeliveryId` به‌عنوان `Idempotency-Key` ارسال و سپس وضعیت را موفق می‌کند.
+- **دلیل:** Inbox فقط تکرار همان Envelope `MessageId` را تشخیص می‌دهد و رویداد منطقی تکراری با MessageId جدید می‌تواند از آن عبور کند. بررسی Unique Constraint بعد از HTTP دیر است، چون Side Effect خارجی Rollback نمی‌شود. رزرو اتمیک قبل از انتشار پیام ارسال باعث می‌شود فقط برنده Race به مرحله HTTP برسد. جداسازی دو Consumer نیز شناسه Delivery را پیش از Side Effect ماندگار می‌کند تا Retry پس از قطعی همیشه همان Idempotency Key را داشته باشد.
+
+### D-061 — مسیر تک‌Consumer برای Webhook
+
+- **وضعیت:** اصلاح‌شده توسط D-062
+- **تصمیم:** ایجاد Delivery و ارسال HTTP در همان `ActivityCreatedWebhookConsumer` انجام می‌شوند. Handler ابتدا بر اساس `ActivityId` وجود Delivery را با Repository بررسی می‌کند؛ اگر وجود نداشت Entity با وضعیت `Pending` را از طریق EF اضافه و `SaveChangesAsync` اجرا می‌کند تا Unique Index پیش از HTTP بررسی شود. سپس درخواست با `ActivityId` به‌عنوان `Idempotency-Key` ارسال و وضعیت همان Entity به `Succeeded` تغییر می‌کند. Race نهایی با ترجمه خطای Unique Index به `DuplicateWebhookDeliveryException` مدیریت می‌شود و بازنده پیش از HTTP پایان می‌یابد.
+- **دلیل:** برای این Use Case تنها یک عملیات Webhook به‌ازای هر Activity وجود دارد، بنابراین `ActivityId` کلید Idempotency پایدار عملیات است؛ حتی اگر تراکنش پس از HTTP Rollback شود، Retry همان Header را می‌فرستد. این انتخاب نیاز به Event و Consumer دوم را حذف می‌کند. `WebhookDeliveryId` همچنان هویت مستقل Entity و `ActivityId` فقط مرجع یکتا به Activity باقی می‌ماند.
+
+### D-062 — ماندگاری Pending و خطای Webhook
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** Webhook Endpoint از `UseEntityFrameworkOutbox<CrmDbContext>` سراسری مستثنا می‌شود؛ Notification و سایر Endpointها همچنان Consumer Outbox دارند. در Webhook Consumer، اولین `SaveChangesAsync` رکورد `Pending` را پیش از HTTP Commit می‌کند. در شکست HTTP، `LastError` و `LastAttemptAtUtc` ذخیره و Exception دوباره پرتاب می‌شود تا Retry کوتاه MassTransit اجرا شود. در موفقیت، Status به `Succeeded` تغییر، زمان آخرین تلاش ثبت و خطای قبلی پاک می‌شود.
+- **دلیل:** با Consumer Outbox، تراکنش Middleware تا پایان Consumer باز می‌ماند و شکست HTTP ثبت Pending و خطا را Rollback می‌کند. این Endpoint خروجی Messaging ندارد و Idempotency آن با `ActivityId`، Unique Index و وضعیت Delivery تأمین می‌شود؛ بنابراین خارج‌کردن هدفمند آن از Consumer Outbox امکان مشاهده و بازیابی Pending و خطای آخر را بدون حذف Outbox از سایر Consumerها فراهم می‌کند.
 
 ## ۶. مراحل پیاده‌سازی
 
@@ -724,19 +748,24 @@ DidarCrm.Infrastructure/Persistence/Migrations
 #### مرحله ۶.۱ — مدل Delivery و HTTP Port
 
 - **وضعیت:** آماده‌بازبینی
-- افزودن مدل `WebhookDelivery` با هویت `ActivityId` و وضعیت اولیه `Pending`.
+- افزودن مدل `WebhookDelivery` با `WebhookDeliveryId` مستقل، `ActivityId` یکتا و وضعیت اولیه `Pending`.
 - افزودن رفتار موفقیت و قرارداد `IWebhookSender` همراه Payload مستقل.
 - نگاشت EF، Consumer و Adapter واقعی HTTP در این مرحله پیاده‌سازی نمی‌شوند.
 
 #### مرحله ۶.۲ — ارسال موفق Webhook
 
-- **وضعیت:** شروع‌نشده
-- پیاده‌سازی Happy Path با Idempotency Header.
+- **وضعیت:** آماده‌بازبینی
+- افزودن Schema و Repository مربوط به `crmWebhookDelivery`.
+- بررسی و ثبت `Pending` با EF در همان Consumer، پیش از Side Effect خارجی.
+- ارسال POST با `Idempotency-Key` مبتنی بر `ActivityId` و سپس ثبت وضعیت `Succeeded`.
+- مدیریت Race مربوط به Unique ActivityId پیش از ارسال HTTP.
+- افزودن تست Handler، قرارداد HTTP، EF Model و Migration.
 
 #### مرحله ۶.۳ — Retry و Backoff
 
-- **وضعیت:** شروع‌نشده
-- مدیریت خطای موقت و تعداد تلاش.
+- **وضعیت:** درحال‌انجام
+- ثبت ماندگار آخرین خطا و زمان آخرین تلاش پیاده‌سازی شده است.
+- Retry کوتاه Configuration-driven موجود است؛ Backoff بلندمدت و شمارنده تلاش هنوز پیاده‌سازی نشده‌اند.
 
 #### مرحله ۶.۴ — خطای دائمی و Dead Letter
 
@@ -869,5 +898,9 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۵.۳ با اتصال خودکار Notification Consumer به Consumer Outbox و `InboxState` از طریق سیاست سراسری مرحله ۴.۴ تکمیل شد؛ از ثبت تکراری Middleware جلوگیری و تصمیم D-056 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۵.۴ با تست Redelivery واقعی روی RabbitMQ، بررسی یک Notification و یک Inbox و انتظار برای تخلیه Queue تکمیل شد؛ تصمیم D-057 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۶.۱ شامل مدل مینیمال Webhook Delivery با هویت Activity، وضعیت Pending/Succeeded و Port ارسال HTTP پیاده‌سازی شد؛ تصمیم D-058 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | مرحله ۶.۲ شامل Queue و Consumer وب‌هوک، Handler مسیر موفق، Adapter مبتنی بر HttpClientFactory، Header پایدار Idempotency و Schema مستقل Delivery پیاده‌سازی شد؛ تصمیم D-059 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | پس از بازبینی مرحله ۶.۲، WebhookDeliveryId مستقل اضافه و رزرو یکتای Delivery از ارسال HTTP جدا شد؛ جریان به دو Consumer و پیام میانی Outbox تقسیم و تصمیم D-060 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | پس از بازبینی مجدد مرحله ۶.۲، Event و Consumer میانی حذف و جریان به یک Consumer بازگردانده شد؛ ثبت Pending پیش از HTTP و مدیریت خطای Unique مطابق D-061 جایگزین شدند. |
+| ۱۴۰۵/۰۸/۲۹ | Webhook Endpoint از Consumer Outbox سراسری مستثنا شد تا Pending و آخرین خطای HTTP پیش از Retry ماندگار شوند؛ تصمیم D-062 ثبت شد. |
 
 </div>

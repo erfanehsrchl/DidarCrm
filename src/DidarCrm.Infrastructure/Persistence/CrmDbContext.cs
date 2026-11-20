@@ -1,6 +1,7 @@
 using DidarCrm.Domain.Activities;
 using DidarCrm.Domain.Contacts;
 using DidarCrm.Domain.Notifications;
+using DidarCrm.Domain.Webhooks;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,6 +16,9 @@ public sealed class CrmDbContext(DbContextOptions<CrmDbContext> options)
 
     public DbSet<ActivityNotification> Notifications =>
         Set<ActivityNotification>();
+
+    public DbSet<WebhookDelivery> WebhookDeliveries =>
+        Set<WebhookDelivery>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

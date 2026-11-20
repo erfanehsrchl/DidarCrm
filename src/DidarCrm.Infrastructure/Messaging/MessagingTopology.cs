@@ -10,4 +10,5 @@ public static class MessagingTopology
 
     public const string WebhookQueue =
         "didar-crm.webhook.activity-created";
+
 }

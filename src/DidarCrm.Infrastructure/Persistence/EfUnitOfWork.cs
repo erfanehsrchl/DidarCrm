@@ -22,6 +22,33 @@ internal sealed class EfUnitOfWork(CrmDbContext dbContext) : IUnitOfWork
         {
             throw new DuplicateRequestKeyException(exception);
         }
+        catch (DbUpdateException exception)
+            when (IsDuplicateWebhookDeliveryViolation(exception))
+        {
+            foreach (var entry in exception.Entries)
+            {
+                entry.State = EntityState.Detached;
+            }
+
+            throw new DuplicateWebhookDeliveryException(exception);
+        }
+    }
+
+    private static bool IsDuplicateWebhookDeliveryViolation(
+        DbUpdateException exception)
+    {
+        if (exception.InnerException is not SqlException sqlException)
+        {
+            return false;
+        }
+
+        return sqlException.Errors
+            .Cast<SqlError>()
+            .Any(error =>
+                error.Number is 2601 or 2627 &&
+                error.Message.Contains(
+                    WebhookDeliveryConfiguration.ActivityIdUniqueIndexName,
+                    StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsDuplicateRequestKeyViolation(

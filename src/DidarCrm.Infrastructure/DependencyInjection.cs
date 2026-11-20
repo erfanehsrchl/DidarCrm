@@ -1,11 +1,13 @@
 using DidarCrm.Application.Abstractions.Messaging;
 using DidarCrm.Application.Abstractions.Persistence;
 using DidarCrm.Application.Abstractions.Time;
+using DidarCrm.Application.Abstractions.Webhooks;
 using DidarCrm.Application.Activities.Events;
 using DidarCrm.Infrastructure.Messaging;
 using DidarCrm.Infrastructure.Persistence;
 using DidarCrm.Infrastructure.Persistence.Repositories;
 using DidarCrm.Infrastructure.Time;
+using DidarCrm.Infrastructure.Webhooks;
 using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,11 +23,13 @@ public static class DependencyInjection
         RabbitMqOptions? rabbitMqOptions = null,
         OutboxDeliveryOptions? outboxDeliveryOptions = null,
         ConsumerProcessingOptions? consumerProcessingOptions = null,
+        WebhookOptions? webhookOptions = null,
         Action<IRegistrationConfigurator>? configureConsumers = null)
     {
         rabbitMqOptions ??= new RabbitMqOptions();
         outboxDeliveryOptions ??= new OutboxDeliveryOptions();
         consumerProcessingOptions ??= new ConsumerProcessingOptions();
+        webhookOptions ??= new WebhookOptions();
 
         services.AddDbContext<CrmDbContext>(options =>
             options.UseSqlServer(connectionString));
@@ -59,13 +63,20 @@ public static class DependencyInjection
             });
 
             configurator.AddConfigureEndpointsCallback(
-                (context, _, endpoint) =>
+                (context, endpointName, endpoint) =>
                 {
                     endpoint.UseMessageRetry(retry =>
                         retry.Interval(
                             consumerProcessingOptions.RetryCount,
                             consumerProcessingOptions.RetryInterval));
-                    endpoint.UseEntityFrameworkOutbox<CrmDbContext>(context);
+
+                    if (!string.Equals(
+                            endpointName,
+                            MessagingTopology.WebhookQueue,
+                            StringComparison.Ordinal))
+                    {
+                        endpoint.UseEntityFrameworkOutbox<CrmDbContext>(context);
+                    }
                 });
 
             if (!rabbitMqOptions.Enabled)
@@ -104,8 +115,13 @@ public static class DependencyInjection
         services.AddScoped<
             IActivityNotificationRepository,
             ActivityNotificationRepository>();
+        services.AddScoped<
+            IWebhookDeliveryRepository,
+            WebhookDeliveryRepository>();
         services.AddScoped<IIntegrationEventPublisher, MassTransitIntegrationEventPublisher>();
         services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton(webhookOptions);
+        services.AddHttpClient<IWebhookSender, HttpWebhookSender>();
 
         return services;
     }

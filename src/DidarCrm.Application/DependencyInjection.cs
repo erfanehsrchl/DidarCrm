@@ -1,6 +1,7 @@
 using System.Reflection;
 using DidarCrm.Application.Activities.CreateActivity;
 using DidarCrm.Application.Notifications.CreateActivityNotification;
+using DidarCrm.Application.Webhooks.SendActivityWebhook;
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -14,6 +15,7 @@ public static class DependencyInjection
     {
         services.AddScoped<CreateActivityHandler>();
         services.AddScoped<CreateActivityNotificationHandler>();
+        services.AddScoped<SendActivityWebhookHandler>();
 
         foreach (var assembly in additionalValidatorAssemblies)
         {

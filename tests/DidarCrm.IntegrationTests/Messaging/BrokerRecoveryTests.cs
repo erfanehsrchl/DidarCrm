@@ -6,9 +6,11 @@ using System.Text.Json;
 using DidarCrm.Api.Contracts;
 using DidarCrm.Api.Contracts.Activities;
 using DidarCrm.Application.Activities.Events;
+using DidarCrm.Application.Abstractions.Webhooks;
 using DidarCrm.Domain.Activities;
 using DidarCrm.Domain.Contacts;
 using DidarCrm.Domain.Notifications;
+using DidarCrm.Domain.Webhooks;
 using DidarCrm.Infrastructure.Messaging;
 using DidarCrm.Infrastructure.Persistence;
 using MassTransit;
@@ -123,11 +125,13 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
             "Redelivered activity",
             DateTimeOffset.UtcNow);
         var bus = scope.ServiceProvider.GetRequiredService<IBus>();
+        var notificationEndpoint = await bus.GetSendEndpoint(
+            new Uri($"queue:{MessagingTopology.NotificationQueue}"));
 
-        await bus.Publish(
+        await notificationEndpoint.Send(
             message,
             context => context.MessageId = messageId);
-        await bus.Publish(
+        await notificationEndpoint.Send(
             message,
             context => context.MessageId = messageId);
 
@@ -135,14 +139,18 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
             async () =>
                 await CountNotificationsAsync(activityId) == 1 &&
                 await CountInboxEntriesAsync(messageId) == 1 &&
-                await GetNotificationQueueMessageCountAsync(managementClient) == 0,
+                await GetQueueMessageCountAsync(
+                    managementClient,
+                    MessagingTopology.NotificationQueue) == 0,
             TimeSpan.FromSeconds(60));
 
         var notificationCount = await CountNotificationsAsync(activityId);
         var matchingInboxCount = await CountInboxEntriesAsync(messageId);
         var totalInboxCount = await CountInboxEntriesAsync();
         var queueMessageCount =
-            await GetNotificationQueueMessageCountAsync(managementClient);
+            await GetQueueMessageCountAsync(
+                managementClient,
+                MessagingTopology.NotificationQueue);
 
         Assert.True(
             duplicateWasConsumed,
@@ -154,6 +162,92 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
         Assert.Equal(1, notificationCount);
         Assert.Equal(1, matchingInboxCount);
     }
+
+    [Fact]
+    public async Task DifferentMessageIdsForSameActivityReserveOneWebhookDelivery()
+    {
+        await using var factory = new BrokerRecoveryWebApplicationFactory(
+            _sqlServer.GetConnectionString(),
+            _rabbitMq.Hostname,
+            _rabbitMq.GetMappedPublicPort(RabbitMqBuilder.RabbitMqPort));
+        using var scope = factory.Services.CreateScope();
+        using var managementClient = CreateRabbitManagementClient();
+        var bus = scope.ServiceProvider.GetRequiredService<IBus>();
+        var webhookEndpoint = await bus.GetSendEndpoint(
+            new Uri($"queue:{MessagingTopology.WebhookQueue}"));
+        var activityId = Guid.NewGuid();
+
+        await webhookEndpoint.Send(
+            CreateActivityCreatedEvent(Guid.NewGuid(), activityId),
+            context => context.MessageId = Guid.NewGuid());
+        await webhookEndpoint.Send(
+            CreateActivityCreatedEvent(Guid.NewGuid(), activityId),
+            context => context.MessageId = Guid.NewGuid());
+
+        var bothMessagesWereConsumed = await WaitUntilAsync(
+            async () =>
+                await CountWebhookDeliveriesAsync(activityId) == 1 &&
+                await GetQueueMessageCountAsync(
+                    managementClient,
+                    MessagingTopology.WebhookQueue) == 0,
+            TimeSpan.FromSeconds(60));
+
+        Assert.True(
+            bothMessagesWereConsumed,
+            "Both logical duplicates were not consumed within the expected time.");
+        Assert.Equal(1, await CountWebhookDeliveriesAsync(activityId));
+    }
+
+    [Fact]
+    public async Task FailedWebhookPersistsPendingDeliveryAndLastError()
+    {
+        await using var factory = new BrokerRecoveryWebApplicationFactory(
+            _sqlServer.GetConnectionString(),
+            _rabbitMq.Hostname,
+            _rabbitMq.GetMappedPublicPort(RabbitMqBuilder.RabbitMqPort),
+            failWebhook: true);
+        using var scope = factory.Services.CreateScope();
+        using var managementClient = CreateRabbitManagementClient();
+        var bus = scope.ServiceProvider.GetRequiredService<IBus>();
+        var webhookEndpoint = await bus.GetSendEndpoint(
+            new Uri($"queue:{MessagingTopology.WebhookQueue}"));
+        var activityId = Guid.NewGuid();
+
+        await webhookEndpoint.Send(
+            CreateActivityCreatedEvent(Guid.NewGuid(), activityId),
+            context => context.MessageId = Guid.NewGuid());
+
+        var failureWasPersisted = await WaitUntilAsync(
+            async () =>
+            {
+                var delivery = await GetWebhookDeliveryAsync(activityId);
+                return delivery is
+                    {
+                        Status: WebhookDeliveryStatus.Pending,
+                        LastAttemptAtUtc: not null,
+                        LastError: "Webhook endpoint unavailable."
+                    } &&
+                    await GetQueueMessageCountAsync(
+                        managementClient,
+                        $"{MessagingTopology.WebhookQueue}_error") == 1;
+            },
+            TimeSpan.FromSeconds(60));
+
+        Assert.True(
+            failureWasPersisted,
+            "The failed webhook attempt was not persisted before the message reached the error queue.");
+    }
+
+    private static ActivityCreatedEvent CreateActivityCreatedEvent(
+        Guid messageId,
+        Guid activityId) =>
+        new(
+            messageId,
+            activityId,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Duplicate logical event",
+            DateTimeOffset.UtcNow);
 
     private async Task SeedContactAsync(Guid tenantId, Guid contactId)
     {
@@ -190,6 +284,25 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
             notification => notification.ActivityId == id);
     }
 
+    private async Task<int> CountWebhookDeliveriesAsync(Guid activityId)
+    {
+        await using var dbContext = CreateDbContext();
+        var id = ActivityId.From(activityId);
+
+        return await dbContext.WebhookDeliveries.CountAsync(
+            delivery => delivery.ActivityId == id);
+    }
+
+    private async Task<WebhookDelivery?> GetWebhookDeliveryAsync(Guid activityId)
+    {
+        await using var dbContext = CreateDbContext();
+        var id = ActivityId.From(activityId);
+
+        return await dbContext.WebhookDeliveries
+            .AsNoTracking()
+            .SingleOrDefaultAsync(delivery => delivery.ActivityId == id);
+    }
+
     private async Task<int> CountInboxEntriesAsync(Guid messageId)
     {
         await using var dbContext = CreateDbContext();
@@ -223,11 +336,12 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
         return client;
     }
 
-    private static async Task<int?> GetNotificationQueueMessageCountAsync(
-        HttpClient client)
+    private static async Task<int?> GetQueueMessageCountAsync(
+        HttpClient client,
+        string queueName)
     {
         using var response = await client.GetAsync(
-            $"api/queues/%2F/{MessagingTopology.NotificationQueue}");
+            $"api/queues/%2F/{queueName}");
 
         if (!response.IsSuccessStatusCode)
         {
@@ -307,7 +421,8 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
     private sealed class BrokerRecoveryWebApplicationFactory(
         string connectionString,
         string rabbitHost,
-        ushort rabbitPort) : WebApplicationFactory<Program>
+        ushort rabbitPort,
+        bool failWebhook = false) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -321,11 +436,43 @@ public sealed class BrokerRecoveryTests : IAsyncLifetime
             builder.UseSetting("OutboxDelivery:QueryDelay", "00:00:00.200");
 
             builder.ConfigureServices(services =>
+            {
+                if (failWebhook)
+                {
+                    services.AddSingleton<IWebhookSender, FailingWebhookSender>();
+                }
+                else
+                {
+                    services.AddSingleton<IWebhookSender, SuccessfulWebhookSender>();
+                }
                 services.Configure<MassTransitHostOptions>(options =>
                 {
                     options.WaitUntilStarted = true;
                     options.StartTimeout = TimeSpan.FromSeconds(30);
-                }));
+                });
+            });
+        }
+    }
+
+    private sealed class SuccessfulWebhookSender : IWebhookSender
+    {
+        public Task SendAsync(
+            Guid idempotencyKey,
+            ActivityWebhookPayload payload,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FailingWebhookSender : IWebhookSender
+    {
+        public Task SendAsync(
+            Guid idempotencyKey,
+            ActivityWebhookPayload payload,
+            CancellationToken cancellationToken = default)
+        {
+            throw new HttpRequestException("Webhook endpoint unavailable.");
         }
     }
 }
