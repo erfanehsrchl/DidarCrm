@@ -27,6 +27,7 @@ public sealed class CrmMigrationTests
         Assert.Contains("CREATE TABLE [OutboxState]", script);
         Assert.Contains("CREATE TABLE [OutboxMessage]", script);
         Assert.Contains("CREATE TABLE [crmWebhookDelivery]", script);
+        Assert.Contains("CREATE TABLE [crmActivityBackfillRelease]", script);
         Assert.Contains("[UX_crmActivity_TenantId_RequestKey]", script);
         Assert.DoesNotContain("CREATE TABLE [crmActivity]", script);
         Assert.DoesNotContain("CREATE TABLE [cntContact]", script);

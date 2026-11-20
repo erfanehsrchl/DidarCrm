@@ -3,6 +3,8 @@ using DidarCrm.Application.Abstractions.Persistence;
 using DidarCrm.Application.Abstractions.Time;
 using DidarCrm.Application.Abstractions.Webhooks;
 using DidarCrm.Application.Activities.Events;
+using DidarCrm.Application.Backfill.ReleaseLegacyActivities;
+using DidarCrm.Infrastructure.Backfill;
 using DidarCrm.Infrastructure.Messaging;
 using DidarCrm.Infrastructure.Persistence;
 using DidarCrm.Infrastructure.Persistence.Repositories;
@@ -133,6 +135,9 @@ public static class DependencyInjection
         services.AddScoped<
             IWebhookDeliveryRepository,
             WebhookDeliveryRepository>();
+        services.AddScoped<
+            ILegacyActivityBackfillRepository,
+            LegacyActivityBackfillRepository>();
         services.AddScoped<IIntegrationEventPublisher, MassTransitIntegrationEventPublisher>();
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton(webhookOptions);

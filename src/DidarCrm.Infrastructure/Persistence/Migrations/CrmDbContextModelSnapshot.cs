@@ -141,6 +141,26 @@ namespace DidarCrm.Infrastructure.Persistence.Migrations
                     b.ToTable("crmWebhookDelivery", (string)null);
                 });
 
+            modelBuilder.Entity("DidarCrm.Infrastructure.Backfill.LegacyActivityRelease", b =>
+                {
+                    b.Property<Guid>("ActivityId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("MessageId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTimeOffset>("ReleasedAtUtc")
+                        .HasColumnType("datetimeoffset")
+                        .HasColumnName("ReleasedAt");
+
+                    b.HasKey("ActivityId");
+
+                    b.HasIndex("MessageId")
+                        .IsUnique();
+
+                    b.ToTable("crmActivityBackfillRelease", (string)null);
+                });
+
             modelBuilder.Entity("MassTransit.EntityFrameworkCoreIntegration.InboxState", b =>
                 {
                     b.Property<long>("Id")

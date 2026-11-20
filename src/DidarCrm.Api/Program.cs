@@ -1,10 +1,12 @@
 using DidarCrm.Api;
+using DidarCrm.Api.Backfill;
 using DidarCrm.Api.Common;
 using DidarCrm.Api.Consumers.Notifications;
 using DidarCrm.Api.Consumers.Webhooks;
 using DidarCrm.Api.Validation;
 using DidarCrm.Application;
 using DidarCrm.Infrastructure;
+using DidarCrm.Infrastructure.Backfill;
 using DidarCrm.Infrastructure.Messaging;
 using DidarCrm.Infrastructure.Webhooks;
 using MassTransit;
@@ -34,6 +36,30 @@ var webhookOptions = builder.Configuration
     .Get<WebhookOptions>()
     ?? throw new InvalidOperationException(
         $"Configuration section '{WebhookOptions.SectionName}' was not found.");
+var legacyActivityBackfillOptions = builder.Configuration
+    .GetSection(LegacyActivityBackfillOptions.SectionName)
+    .Get<LegacyActivityBackfillOptions>()
+    ?? new LegacyActivityBackfillOptions();
+
+if (legacyActivityBackfillOptions.BatchSize <= 0)
+{
+    throw new InvalidOperationException(
+        "Legacy activity backfill batch size must be greater than zero.");
+}
+
+if (legacyActivityBackfillOptions.BatchDelay < TimeSpan.Zero ||
+    legacyActivityBackfillOptions.PollingInterval <= TimeSpan.Zero)
+{
+    throw new InvalidOperationException(
+        "Legacy activity backfill delays must be valid positive values.");
+}
+
+if (legacyActivityBackfillOptions.Enabled &&
+    !outboxDeliveryOptions.Enabled)
+{
+    throw new InvalidOperationException(
+        "Outbox delivery must be enabled while legacy activity backfill is enabled.");
+}
 
 builder.Services.AddInfrastructure(
     connectionString,
@@ -51,6 +77,11 @@ builder.Services.AddInfrastructure(
             ActivityCreatedWebhookConsumerDefinition>();
     });
 builder.Services.AddApplication(typeof(CreateActivityRequestValidator).Assembly);
+builder.Services.AddSingleton(legacyActivityBackfillOptions);
+if (legacyActivityBackfillOptions.Enabled)
+{
+    builder.Services.AddHostedService<LegacyActivityBackfillWorker>();
+}
 builder.Services.AddPresentation();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>

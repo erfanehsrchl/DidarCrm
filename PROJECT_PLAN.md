@@ -521,6 +521,18 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** Backfill اعلان و Webhook در اسکریپت‌های مستقل، با Batch پیش‌فرض ۱۰۰۰ رکوردی، تراکنش جدا برای هر Batch و تأخیر قابل تنظیم اجرا می‌شوند. هر Insert با `NOT EXISTS` و Lock هدفمند روی Unique Index محافظت می‌شود و Unique Index مربوط به `ActivityId` تضمین نهایی عدم تکرار است.
 - **دلیل:** تراکنش‌های کوتاه فشار Lock و Log را برای چند میلیون رکورد محدود می‌کنند. اسکریپت‌ها بدون حذف یا بازنویسی نتیجه قبلی قابل اجرای مجدد هستند و با Writeهای همزمان مسیر جدید تداخل داده‌ای ایجاد نمی‌کنند.
 
+### D-067 — Release Ledger و Resume اتمیک
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** Use Case با نام `ReleaseLegacyActivitiesHandler` در Application، Candidateها را از `ILegacyActivityBackfillRepository` دریافت می‌کند و برای هر Activity قدیمی ناقص یک `ActivityCreatedEvent` و یک Release ایجاد می‌کند. پیاده‌سازی EF Repository و مدل Persistence مربوط به جدول `crmActivityBackfillRelease` در Infrastructure باقی می‌مانند. Event و Release از طریق Bus Outbox و `IUnitOfWork` در یک `SaveChanges` ذخیره می‌شوند. Release Ledger شامل `ActivityId`، `MessageId` و `ReleasedAt` است و Activityهای دارای `RequestKey` را وارد Backfill نمی‌کند.
+- **دلیل:** یک Cursor سراسری می‌تواند Write همزمان با شناسه کوچک‌تر را از دست بدهد و ثبت Checkpoint جدا از انتشار پیام Failure Gap می‌سازد. Ledger به‌ازای هر Activity هم Resume را مستقل از ترتیب شناسه امن می‌کند و هم همراه Outbox به‌صورت اتمیک Commit می‌شود.
+
+### D-068 — Polling هنگام همزیستی و Reconciliation
+
+- **وضعیت:** پذیرفته‌شده
+- **تصمیم:** Worker پس از Batch خالی متوقف نمی‌شود و تا زمان غیرفعال‌سازی با Polling ادامه می‌دهد. Batch پر با تأخیر کوتاه و Batch ناقص/خالی با Polling Interval اجرا می‌شود. فعال‌سازی Worker مستلزم فعال‌بودن Outbox Delivery است. Reconciliation فقط از طریق اسکریپت عملیاتی مستقل انجام می‌شود؛ متد برنامه‌ای تکراری `ReconcileAsync` حذف شده است.
+- **دلیل:** در دوره همزیستی، نسخه قدیمی ممکن است پس از عبور Backfill همچنان Activity بدون RequestKey بنویسد. Polling و Ledger آن Write را در دور بعد می‌گیرند؛ Queryهای Reconciliation نیز تفاوت «هنوز آزاد نشده» و «آزاد شده اما Consumer هنوز کامل نکرده» را قابل مشاهده می‌کنند.
+
 ## ۶. مراحل پیاده‌سازی
 
 هر زیرمرحله یک Review Gate و Commit مستقل دارد. کار زیرمرحله بعد نباید با زیرمرحله فعلی مخلوط شود. در پایان هر زیرمرحله، خلاصه تغییرات، نتیجه Build و Test و هر تصمیم تغییرکرده ارائه می‌شود و سپس برای ادامه منتظر بازبینی می‌مانیم.
@@ -803,33 +815,39 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 #### مرحله ۷.۱ — طراحی Schema انتقال
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - ثبت نگاشت صریح Flagهای قدیمی به جدول‌ها و وضعیت‌های جدید.
 - حفظ موارد ناقص برای پردازش کنترل‌شده مرحله ۷.۴ و پرهیز از ساخت Telemetry حدسی.
 
 #### مرحله ۷.۲ — Backfill اعلان
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - اسکریپت Batch و قابل اجرای مجدد برای انتقال اعلان‌های تکمیل‌شده تاریخی.
 - تراکنش مستقل هر Batch، تأخیر قابل تنظیم و محافظت نهایی با Unique Index.
 - تست روی SQL Server واقعی برای نگاشت Flag و اجرای مجدد.
 
 #### مرحله ۷.۳ — Backfill وب‌هوک
 
-- **وضعیت:** آماده‌بازبینی
+- **وضعیت:** پذیرفته‌شده
 - اسکریپت Batch و قابل اجرای مجدد برای ساخت Deliveryهای `Succeeded` و `Pending`.
 - حفظ ناشناخته‌بودن Telemetry تاریخی با `AttemptCount = 0` و مقادیر آخرین تلاش برابر `NULL`.
 - تست روی SQL Server واقعی برای نگاشت هر دو مقدار Flag و اجرای مجدد.
 
 #### مرحله ۷.۴ — Checkpoint و Resume
 
-- **وضعیت:** شروع‌نشده
-- افزودن توقف/ادامه و تست اجرای مجدد.
+- **وضعیت:** آماده‌بازبینی
+- افزودن Release Ledger یکتا به‌ازای Activity و Migration مربوط به آن.
+- Orchestration در `ReleaseLegacyActivitiesHandler` لایه Application و دسترسی EF پشت Repository لایه Infrastructure.
+- ثبت اتمیک Release و `ActivityCreatedEvent` در Bus Outbox با `IUnitOfWork`.
+- Worker اختیاری با Batch و تأخیر Configuration-driven و تست Resume بدون انتشار تکراری.
 
 #### مرحله ۷.۵ — Concurrent Write و Reconciliation
 
-- **وضعیت:** شروع‌نشده
-- تست نوشتن همزمان و Queryهای صحت‌سنجی.
+- **وضعیت:** آماده‌بازبینی
+- ادامه Polling پس از Batch خالی برای پوشش Writeهای همزمان نسخه قدیمی.
+- محدودکردن Backfill به رکوردهای Legacy با `RequestKey IS NULL`.
+- افزودن اسکریپت مستقل Reconciliation برای تفکیک موارد آزاد‌نشده و Side Effectهای در انتظار؛ بدون API برنامه‌ای تکراری.
+- تست درج Legacy پس از Poll خالی و ردکردن Activity مسیر جدید.
 
 ### مرحله ۸ — Operability
 
@@ -938,5 +956,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۶.۴ با وضعیت نهایی Failed، انتقال پیام به Error Queue و امکان بازیابی Delivery شکست‌خورده تکمیل شد؛ تصمیم D-064 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | وضعیت مراحل ۴.۱ تا ۶.۴ که بازبینی و مبنای مراحل بعدی قرار گرفته بودند، از «آماده‌بازبینی» به «پذیرفته‌شده» اصلاح شد. |
 | ۱۴۰۵/۰۸/۲۹ | مراحل ۷.۱ تا ۷.۳ شامل نگاشت Flagهای قدیمی، Backfill دسته‌ای اعلان و Webhook و تست اجرای مجدد روی SQL Server واقعی پیاده‌سازی شدند؛ تصمیم‌های D-065 و D-066 ثبت شدند. |
+| ۱۴۰۵/۰۸/۲۹ | مراحل ۷.۱ تا ۷.۳ پس از ادامه به Release ناقص پذیرفته شدند؛ مراحل ۷.۴ و ۷.۵ با Release Ledger اتمیک، Worker قابل Resume، پوشش Write همزمان و Reconciliation پیاده‌سازی و تصمیم‌های D-067 و D-068 ثبت شدند. |
+| ۱۴۰۵/۰۸/۲۹ | بنا بر بازبینی Clean Architecture، Orchestration مربوط به Release از Infrastructure به Handler لایه Application منتقل، EF پشت Repository هدفمند قرار گرفت و `ReconcileAsync` تکراری حذف شد. |
 
 </div>

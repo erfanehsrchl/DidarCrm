@@ -1,6 +1,13 @@
+using DidarCrm.Application;
+using DidarCrm.Application.Backfill.ReleaseLegacyActivities;
+using DidarCrm.Infrastructure;
+using DidarCrm.Infrastructure.Messaging;
 using DidarCrm.Infrastructure.Persistence;
+using MassTransit;
+using MassTransit.EntityFrameworkCoreIntegration;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.MsSql;
 
 namespace DidarCrm.IntegrationTests.Persistence;
@@ -74,6 +81,89 @@ public sealed class BackfillScriptTests : IAsyncLifetime
             await GetWebhookStateAsync(pendingActivityId));
     }
 
+    [Fact]
+    public async Task ReleaseCheckpointAndOutboxResumeWithoutDuplicateEvents()
+    {
+        var firstActivityId = Guid.NewGuid();
+        var secondActivityId = Guid.NewGuid();
+        await InsertActivityAsync(
+            firstActivityId,
+            notificationCreated: false,
+            webhookSent: false);
+        await InsertActivityAsync(
+            secondActivityId,
+            notificationCreated: false,
+            webhookSent: false);
+        await ExecuteBackfillScriptsAsync();
+
+        await using var serviceProvider = CreateServiceProvider();
+
+        await using (var firstScope = serviceProvider.CreateAsyncScope())
+        {
+            var handler = firstScope.ServiceProvider
+                .GetRequiredService<ReleaseLegacyActivitiesHandler>();
+            Assert.Equal(1, await handler.HandleAsync(1));
+        }
+
+        await using (var resumedScope = serviceProvider.CreateAsyncScope())
+        {
+            var handler = resumedScope.ServiceProvider
+                .GetRequiredService<ReleaseLegacyActivitiesHandler>();
+            Assert.Equal(1, await handler.HandleAsync(1));
+            Assert.Equal(0, await handler.HandleAsync(1));
+        }
+
+        await using var verificationContext = CreateDbContext();
+        Assert.Equal(
+            2,
+            await CountAllReleasesAsync());
+        Assert.Equal(
+            2,
+            await verificationContext.Set<OutboxMessage>().CountAsync(
+                message =>
+                    message.Body.Contains(firstActivityId.ToString()) ||
+                    message.Body.Contains(secondActivityId.ToString())));
+    }
+
+    [Fact]
+    public async Task PollingPicksConcurrentLegacyWriteAndReconciliationReportsCoverage()
+    {
+        await using var serviceProvider = CreateServiceProvider();
+
+        await using (var emptyScope = serviceProvider.CreateAsyncScope())
+        {
+            var handler = emptyScope.ServiceProvider
+                .GetRequiredService<ReleaseLegacyActivitiesHandler>();
+            Assert.Equal(0, await handler.HandleAsync(10));
+        }
+
+        var legacyActivityId = Guid.NewGuid();
+        var currentActivityId = Guid.NewGuid();
+        await InsertActivityAsync(
+            legacyActivityId,
+            notificationCreated: false,
+            webhookSent: false);
+        await InsertActivityAsync(
+            currentActivityId,
+            notificationCreated: false,
+            webhookSent: false,
+            requestKey: "current-path");
+
+        await using (var pollingScope = serviceProvider.CreateAsyncScope())
+        {
+            var handler = pollingScope.ServiceProvider
+                .GetRequiredService<ReleaseLegacyActivitiesHandler>();
+            Assert.Equal(1, await handler.HandleAsync(10));
+        }
+
+        Assert.Equal(1, await CountReleasesAsync(legacyActivityId));
+        Assert.Equal(0, await CountReleasesAsync(currentActivityId));
+
+        var reconciliationScript = await ReadScriptAsync(
+            "03-reconcile-backfill.sql");
+        await ExecuteAsync(reconciliationScript);
+    }
+
     private static async Task<string> ReadScriptAsync(string fileName)
     {
         var path = Path.Combine(
@@ -88,7 +178,8 @@ public sealed class BackfillScriptTests : IAsyncLifetime
     private async Task InsertActivityAsync(
         Guid activityId,
         bool notificationCreated,
-        bool webhookSent)
+        bool webhookSent,
+        string? requestKey = null)
     {
         const string sql =
             """
@@ -100,7 +191,7 @@ public sealed class BackfillScriptTests : IAsyncLifetime
             VALUES
             (
                 @Id, @TenantId, @ContactId, N'Historical activity',
-                @CreatedAt, @WebhookSent, @NotificationCreated, NULL
+                @CreatedAt, @WebhookSent, @NotificationCreated, @RequestKey
             );
             """;
 
@@ -118,7 +209,57 @@ public sealed class BackfillScriptTests : IAsyncLifetime
         command.Parameters.AddWithValue(
             "@NotificationCreated",
             notificationCreated);
+        command.Parameters.AddWithValue(
+            "@RequestKey",
+            (object?)requestKey ?? DBNull.Value);
         await command.ExecuteNonQueryAsync();
+    }
+
+    private async Task ExecuteBackfillScriptsAsync()
+    {
+        await ExecuteAsync(
+            await ReadScriptAsync("01-backfill-notifications.sql"));
+        await ExecuteAsync(
+            await ReadScriptAsync("02-backfill-webhook-deliveries.sql"));
+    }
+
+    private ServiceProvider CreateServiceProvider()
+    {
+        return new ServiceCollection()
+            .AddApplication()
+            .AddInfrastructure(
+                _sqlServer.GetConnectionString(),
+                new RabbitMqOptions { Enabled = false },
+                new OutboxDeliveryOptions { Enabled = false })
+            .BuildServiceProvider();
+    }
+
+    private async Task<int> CountReleasesAsync(Guid activityId)
+    {
+        const string sql =
+            """
+            SELECT COUNT(*)
+            FROM [dbo].[crmActivityBackfillRelease]
+            WHERE [ActivityId] = @ActivityId;
+            """;
+
+        return Convert.ToInt32(
+            await ExecuteScalarAsync(sql, activityId));
+    }
+
+    private async Task<int> CountAllReleasesAsync()
+    {
+        const string sql =
+            """
+            SELECT COUNT(*)
+            FROM [dbo].[crmActivityBackfillRelease];
+            """;
+
+        await using var connection = new SqlConnection(
+            _sqlServer.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = new SqlCommand(sql, connection);
+        return Convert.ToInt32(await command.ExecuteScalarAsync());
     }
 
     private async Task<int> CountNotificationsAsync(Guid activityId)
@@ -222,4 +363,5 @@ public sealed class BackfillScriptTests : IAsyncLifetime
 
         await ExecuteAsync(script);
     }
+
 }

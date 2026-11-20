@@ -110,5 +110,6 @@ public sealed class CrmDbContextModelTests
         Assert.Contains("OutboxState", tableNames);
         Assert.Contains("crmNotification", tableNames);
         Assert.Contains("crmWebhookDelivery", tableNames);
+        Assert.Contains("crmActivityBackfillRelease", tableNames);
     }
 }

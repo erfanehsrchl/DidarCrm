@@ -20,8 +20,16 @@
 1. اعمال EF Migrationها و ایجاد جدول‌های جدید.
 2. اجرای `01-backfill-notifications.sql`.
 3. اجرای `02-backfill-webhook-deliveries.sql`.
-4. اجرای Checkpoint/Resume مرحله ۷.۴ برای موارد ناقص قدیمی.
+4. فعال‌کردن همزمان `OutboxDelivery.Enabled` و `LegacyActivityBackfill.Enabled`.
+5. اجرای `03-reconcile-backfill.sql` و بررسی صفرشدن موارد آزاد‌نشده.
+6. پس از توقف کامل Writer قدیمی و پایان Reconciliation، غیرفعال‌کردن Worker.
 
 هر اسکریپت در Batchهای کوتاه Commit می‌کند و اجرای دوباره آن امن است. `Unique Index` روی `ActivityId` محافظ نهایی در برابر ایجاد رکورد تکراری است. اندازه Batch و تأخیر میان Batchها در ابتدای هر فایل قابل تنظیم هستند.
+
+## آزادسازی موارد ناقص
+
+Worker فقط Activityهای قدیمی با `RequestKey IS NULL` را بررسی می‌کند. اگر Notification متناظر وجود نداشته باشد یا Webhook به وضعیت `Succeeded` نرسیده باشد، یک `ActivityCreatedEvent` منتشر می‌کند و همزمان یک رکورد یکتا در `crmActivityBackfillRelease` می‌نویسد. پیام Bus Outbox و Release Ledger در یک `SaveChanges` ذخیره می‌شوند؛ بنابراین توقف برنامه بین Batchها باعث گم‌شدن پیام نمی‌شود.
+
+Worker پس از یک Batch خالی نیز با `PollingInterval` ادامه می‌دهد تا Writeهای همزمان نسخه قدیمی را ببیند. Activityهای مسیر جدید که `RequestKey` دارند وارد Backfill نمی‌شوند. فایل Reconciliation اختلاف Flagهای مثبت قدیمی با وضعیت جدید، موارد ناقص آزاد‌نشده و Side Effectهای در انتظار Consumer را جداگانه گزارش می‌کند.
 
 </div>
