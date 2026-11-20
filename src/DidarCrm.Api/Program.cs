@@ -10,7 +10,6 @@ using DidarCrm.Infrastructure.Backfill;
 using DidarCrm.Infrastructure.Messaging;
 using DidarCrm.Infrastructure.Webhooks;
 using MassTransit;
-using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -102,19 +101,6 @@ app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.MapHealthChecks(
-    "/health/live",
-    new HealthCheckOptions
-    {
-        Predicate = _ => false
-    });
-app.MapHealthChecks(
-    "/health/ready",
-    new HealthCheckOptions
-    {
-        Predicate = registration =>
-            registration.Tags.Contains("ready")
-    });
 app.MapControllers();
 
 app.Run();

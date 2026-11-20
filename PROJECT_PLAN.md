@@ -41,7 +41,7 @@ cntContact
 - نگهداری وضعیت پردازش خارج از جدول `crmActivity`.
 - Migration سازگار با نسخه قبلی و Backfill دسته‌ای، قابل توقف، قابل ادامه و قابل اجرای مجدد.
 - تست خودکار برای Concurrency، تحویل تکراری پیام، قطع Broker و اجرای مجدد Backfill.
-- Health Check، ابزارهای عیب‌یابی و روش بررسی صحت مهاجرت.
+- اسکریپت Reconciliation و روش بررسی صحت مهاجرت.
 
 موارد خارج از محدوده:
 
@@ -290,7 +290,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 ### D-028 — DbContext به‌عنوان Unit of Work
 
 - **وضعیت:** اصلاح‌شده توسط D-040
-- **تصمیم:** Application فقط به قرارداد کوچک `IUnitOfWork.SaveChangesAsync` وابسته است. `CrmDbContext` در Infrastructure باقی می‌ماند، این قرارداد را پیاده‌سازی می‌کند و تمام تغییرات Trackشده شامل Contact، Activity و Outbox را با یک `SaveChangesAsync` اتمیک ذخیره خواهد کرد. `ITransactionRunner` حذف می‌شود.
+- **تصمیم:** Application فقط به قرارداد کوچک `IUnitOfWork.SaveChangesAsync` وابسته است. `CrmDbContext` در Infrastructure باقی می‌ماند، این قرارداد را پیاده‌سازی می‌کند و Insert شدن Activity، Update شدن `Contact.LastActivityAt` و Insert شدن Message در Outbox را با یک `SaveChangesAsync` اتمیک ذخیره خواهد کرد. `ITransactionRunner` حذف می‌شود.
 - **دلیل:** خود EF Core DbContext پیاده‌سازی طبیعی Unit of Work است. این طراحی Handler را از Lambda تراکنشی ساده‌تر می‌کند و در عین حال وابستگی Application به EF Core را به وجود نمی‌آورد.
 
 ### D-029 — رفتار Idempotent Replay و Payload Conflict
@@ -345,7 +345,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 - **وضعیت:** پذیرفته‌شده
 - **تصمیم:** `ActivityRepository` برای خواندن Activity بر اساس `(TenantId, RequestKey)` از `AsNoTracking` و `SingleOrDefaultAsync` استفاده می‌کند. افزودن Activity فقط آن را به Change Tracker همان `CrmDbContext` اضافه می‌کند و Repository مستقیماً `SaveChangesAsync` اجرا نمی‌کند.
-- **دلیل:** Query بدون Tracking به Handler اجازه می‌دهد بعد از شکست Unique Index، رکورد برنده‌ی Commit‌شده را از دیتابیس بخواند و Entity بازنده‌ی موجود در Change Tracker نتیجه را آلوده نکند. `SingleOrDefaultAsync` نیز نقض احتمالی تضمین یکتایی را پنهان نمی‌کند. Commit باید در `IUnitOfWork` باقی بماند تا Activity، Contact و Outbox اتمیک باشند.
+- **دلیل:** Query بدون Tracking به Handler اجازه می‌دهد بعد از شکست Unique Index، رکورد برنده‌ی Commit‌شده را از دیتابیس بخواند و Entity بازنده‌ی موجود در Change Tracker نتیجه را آلوده نکند. `SingleOrDefaultAsync` نیز نقض احتمالی تضمین یکتایی را پنهان نمی‌کند. Commit باید در `IUnitOfWork` باقی بماند تا Insert شدن Activity، Update شدن `Contact.LastActivityAt` و Insert شدن Message در Outbox اتمیک باشند.
 
 ### D-038 — به‌روزرسانی Monotonic مربوط به Contact
 
@@ -357,7 +357,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 - **وضعیت:** اصلاح‌شده توسط D-041
 - **تصمیم:** پیاده‌سازی `IUnitOfWork.SaveChangesAsync` فقط `DbUpdateConcurrencyException`هایی را Resolve می‌کند که تمام Entryهای آن‌ها `Contact` باشند. وضعیت فعلی دیتابیس دوباره روی Entity بارگذاری و قصد قبلی Request با فراخوانی مجدد `Contact.AdvanceLastActivityAt` اعمال می‌شود؛ کل `SaveChanges` حداکثر سه بار تلاش می‌شود. حذف Contact، Conflict مربوط به Entity دیگر یا تمام‌شدن تعداد تلاش‌ها بدون تبدیل دوباره پرتاب می‌شود.
-- **دلیل:** این Retry قانون Monotonic را در شرایط Commit هم‌زمان حفظ می‌کند و چون SaveChanges ناموفق به‌صورت اتمیک Rollback می‌شود، Activity و Outbox در تلاش بعدی همراه Contact دوباره ذخیره می‌شوند. محدودکردن نوع Conflict و تعداد تلاش از پنهان‌شدن خطاهای واقعی یا Retry بی‌نهایت جلوگیری می‌کند.
+- **دلیل:** این Retry قانون Monotonic را در شرایط Commit هم‌زمان حفظ می‌کند و چون SaveChanges ناموفق به‌صورت اتمیک Rollback می‌شود، Insert مربوط به Activity و Outbox همراه با Update جدید `Contact.LastActivityAt` دوباره Commit می‌شوند. محدودکردن نوع Conflict و تعداد تلاش از پنهان‌شدن خطاهای واقعی یا Retry بی‌نهایت جلوگیری می‌کند.
 
 ### D-040 — جداسازی EfUnitOfWork از CrmDbContext
 
@@ -533,11 +533,11 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - **تصمیم:** Worker پس از Batch خالی متوقف نمی‌شود و تا زمان غیرفعال‌سازی با Polling ادامه می‌دهد. Batch پر با تأخیر کوتاه و Batch ناقص/خالی با Polling Interval اجرا می‌شود. فعال‌سازی Worker مستلزم فعال‌بودن Outbox Delivery است. Reconciliation فقط از طریق اسکریپت عملیاتی مستقل انجام می‌شود؛ متد برنامه‌ای تکراری `ReconcileAsync` حذف شده است.
 - **دلیل:** در دوره همزیستی، نسخه قدیمی ممکن است پس از عبور Backfill همچنان Activity بدون RequestKey بنویسد. Polling و Ledger آن Write را در دور بعد می‌گیرند؛ Queryهای Reconciliation نیز تفاوت «هنوز آزاد نشده» و «آزاد شده اما Consumer هنوز کامل نکرده» را قابل مشاهده می‌کنند.
 
-### D-069 — Liveness و Readiness
+### D-069 — حذف مرحله Operability از محدوده تسک
 
 - **وضعیت:** پذیرفته‌شده
-- **تصمیم:** مسیر `/health/live` هیچ Dependency خارجی را بررسی نمی‌کند و فقط زنده‌بودن Process و HTTP Pipeline را نشان می‌دهد. مسیر `/health/ready` تمام Health Checkهای دارای Tag برابر `ready` را اجرا می‌کند؛ SQL Server با `CanConnectAsync` اختصاصی و Bus/Receive Endpointها با Health Check استاندارد MassTransit بررسی می‌شوند.
-- **دلیل:** قطعی SQL Server یا Broker نباید Process سالم را برای Restart اجباری ناسالم نشان دهد، اما Instance فاقد Dependency آماده نباید Traffic دریافت کند. استفاده از Health Check داخلی MassTransit وضعیت واقعی Bus را بدون اتصال دستی و تکراری به RabbitMQ گزارش می‌کند.
+- **تصمیم:** مرحله ۸ شامل Health Endpoint، Correlation Logging، Metrics و تست Graceful Shutdown از محدوده پیاده‌سازی حذف شد. Health Check آزمایشی مرحله ۸.۱ نیز از کد و تست‌ها حذف شد.
+- **دلیل:** PDF پیاده‌سازی این قابلیت‌ها را الزام نکرده است. برای این تسک مصاحبه، تکمیل خروجی‌های صریح شامل Migration، Backfill قابل اجرای مجدد، تست‌های Failure Mode، README و مستند معماری ارزش بیشتری دارد. روش بررسی صحت مهاجرت و بازیابی خطا در اسکریپت Reconciliation و مستند معماری باقی می‌ماند.
 
 ## ۶. مراحل پیاده‌سازی
 
@@ -667,7 +667,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 
 - **وضعیت:** پذیرفته‌شده
 - Resolve کردن Conflict فقط برای `Contact` و حفظ بزرگ‌ترین `LastActivityAt`.
-- Retry محدود کل `SaveChangesAsync` برای حفظ Activity، Contact و Outbox در یک Commit.
+- Retry محدود کل `SaveChangesAsync` برای حفظ Insert مربوط به Activity و Outbox و Update مربوط به `Contact.LastActivityAt` در یک Commit.
 - ترجمه عمومی خطای EF در `EfUnitOfWork` و Orchestration مربوط به Reload و Retry در Handler.
 - اجرای مجدد رفتار Domain پس از Reload وضعیت دیتابیس.
 - تست واقعی Retry پس از Migration روی SQL Server اضافه می‌شود.
@@ -695,7 +695,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 #### مرحله ۲.۶.۳ — تست Rollback تراکنش
 
 - **وضعیت:** پذیرفته‌شده
-- اثبات Rollback اتمیک Activity، Contact و Outbox روی SQL Server واقعی پس از اعمال Migration.
+- اثبات Rollback اتمیک Insert مربوط به Activity و Outbox و Update مربوط به `Contact.LastActivityAt` روی SQL Server واقعی پس از اعمال Migration.
 - اجرای تست روی SQL Server موقت با Testcontainers و Schema قدیمی واقعی.
 
 #### مرحله ۲.۷ — تست Concurrency در SQL Server
@@ -855,46 +855,21 @@ DidarCrm.Infrastructure/Persistence/Migrations
 - افزودن اسکریپت مستقل Reconciliation برای تفکیک موارد آزاد‌نشده و Side Effectهای در انتظار؛ بدون API برنامه‌ای تکراری.
 - تست درج Legacy پس از Poll خالی و ردکردن Activity مسیر جدید.
 
-### مرحله ۸ — Operability
-
-#### مرحله ۸.۱ — Health Check
-
-- **وضعیت:** آماده‌بازبینی
-- افزودن `/health/live` بدون بررسی Dependency خارجی.
-- افزودن `/health/ready` برای SQL Server و Health Check استاندارد MassTransit.
-- تست HTTP مسیر موفق هر دو Probe روی Host واقعی و SQL Server موقت.
-- تست قطعی دیتابیس برای اثبات `200` ماندن Liveness و پاسخ `503` از Readiness.
-
-#### مرحله ۸.۲ — Structured Logging
-
-- **وضعیت:** شروع‌نشده
-- افزودن Correlation و Logهای کلیدی.
-
-#### مرحله ۸.۳ — Metrics
-
-- **وضعیت:** شروع‌نشده
-- افزودن شاخص‌های Outbox، Queue، Retry و Backfill.
-
-#### مرحله ۸.۴ — Graceful Shutdown
-
-- **وضعیت:** شروع‌نشده
-- تست توقف امن Publisher و Consumer.
-
 ### مرحله ۹ — تحویل نهایی
 
 #### مرحله ۹.۱ — README اجرایی
 
-- **وضعیت:** شروع‌نشده
+- **وضعیت:** آماده‌بازبینی
 - تکمیل راه‌اندازی، Migration، Test و Failure Drill.
 
 #### مرحله ۹.۲ — ARCHITECTURE.md
 
-- **وضعیت:** شروع‌نشده
+- **وضعیت:** آماده‌بازبینی
 - تهیه مستند حداکثر دوصفحه‌ای موردنیاز تسک.
 
 #### مرحله ۹.۳ — بازبینی نهایی
 
-- **وضعیت:** شروع‌نشده
+- **وضعیت:** آماده‌بازبینی
 - اجرای تست کامل، بررسی Secret و کنترل پوشش نیازمندی‌ها.
 
 ## ۷. پروتکل بازبینی
@@ -942,7 +917,7 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۵.۲ شامل ترجمه هدفمند خطاهای 2601/2627 مربوط به Index درخواست به `DuplicateRequestKeyException` پیاده‌سازی شد؛ تصمیم D-042 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۱ شامل تعریف و تست EF Model مربوط به Filtered Unique Index درخواست پیاده‌سازی شد؛ تصمیم D-043 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۲ شامل Migration افزایشی ستون Request Key، جداول MassTransit و Index درخواست پیاده‌سازی شد؛ تصمیم D-044 ثبت شد. |
-| ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۳ با تست Rollback اتمیک Contact، Activity و Outbox روی SQL Server واقعی پیاده‌سازی شد؛ تصمیم D-045 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | زیرمرحله ۲.۶.۳ با تست Rollback اتمیک Insert مربوط به Activity و Outbox و Update مربوط به `Contact.LastActivityAt` روی SQL Server واقعی پیاده‌سازی شد؛ تصمیم D-045 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مرحله ۲.۷ با تست قطعی Contact Concurrency، Reload و Retry روی دو DbContext واقعی پیاده‌سازی شد؛ تصمیم D-046 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | مراحل ۳.۱ تا ۳.۳ شامل Endpoint ثبت Activity، Validation، Problem Details، پاسخ Created/Replay و تست‌های HTTP پیاده‌سازی شدند؛ تصمیم D-047 ثبت شد. |
 | ۱۴۰۵/۰۸/۲۹ | بنا بر بازبینی API، Outcome و Problem Details با Controller، Result خروجی Application، Validation خودکار، `HandleResult`، `ApiResponse<T>` و Swagger جایگزین شدند؛ تصمیم D-048 ثبت شد. |
@@ -967,6 +942,8 @@ DidarCrm.Infrastructure/Persistence/Migrations
 | ۱۴۰۵/۰۸/۲۹ | مراحل ۷.۱ تا ۷.۳ شامل نگاشت Flagهای قدیمی، Backfill دسته‌ای اعلان و Webhook و تست اجرای مجدد روی SQL Server واقعی پیاده‌سازی شدند؛ تصمیم‌های D-065 و D-066 ثبت شدند. |
 | ۱۴۰۵/۰۸/۲۹ | مراحل ۷.۱ تا ۷.۳ پس از ادامه به Release ناقص پذیرفته شدند؛ مراحل ۷.۴ و ۷.۵ با Release Ledger اتمیک، Worker قابل Resume، پوشش Write همزمان و Reconciliation پیاده‌سازی و تصمیم‌های D-067 و D-068 ثبت شدند. |
 | ۱۴۰۵/۰۸/۲۹ | بنا بر بازبینی Clean Architecture، Orchestration مربوط به Release از Infrastructure به Handler لایه Application منتقل، EF پشت Repository هدفمند قرار گرفت و `ReconcileAsync` تکراری حذف شد. |
-| ۱۴۰۵/۰۸/۲۹ | مرحله ۸.۱ با Liveness مستقل و Readiness وابسته به SQL Server و Health Check استاندارد MassTransit پیاده‌سازی و تصمیم D-069 ثبت شد. |
+| ۱۴۰۵/۰۸/۲۹ | کل مرحله ۸ به‌عنوان خارج از محدوده صریح PDF کنار گذاشته شد؛ Health Check مرحله ۸.۱ نیز از کد و تست‌ها حذف و تصمیم D-069 اصلاح شد. |
+| ۱۴۰۵/۰۸/۲۹ | مراحل ۹.۱ و ۹.۲ با تکمیل README اجرایی و ARCHITECTURE.md حداکثر دوصفحه‌ای بر اساس پرسش‌ها و نحوه تحویل صریح PDF، آماده بازبینی شدند. |
+| ۱۴۰۵/۰۸/۲۹ | بازبینی مرحله ۹.۳ انجام شد؛ Build بدون هشدار، ۴۰ تست Unit و ۱۹ تست Integration موفق بودند و فقط Credentialهای صریحاً محلی و قابل جایگزینی با Environment Variable در Repository باقی ماندند. |
 
 </div>
